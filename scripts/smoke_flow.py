@@ -209,8 +209,6 @@ async def main() -> None:
     print("dialog relay -> admin received header + copy")
 
     # 10) admin replies in support chat -> relayed back to customer
-    relay_header = [m for m in find("SendMessage") if int(m["chat_id"]) == ADMIN_ID][0]
-    # The header message id is what we stored; reply to it.
     async with session_factory() as s:
         from app.db.models import RelayMap
         from sqlalchemy import select
