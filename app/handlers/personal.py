@@ -35,5 +35,7 @@ async def process_personal(bot: Bot, session: AsyncSession, user: User, descript
     )
     await repo.set_state(session, user, UserState.DIALOG)
     caption = texts.PERSONAL_DONE.format(order_id=order.id)
-    await show_screen(bot, session, user, Banner.APPROVED, caption, inline.in_dialog())
+    await show_screen(
+        bot, session, user, Banner.APPROVED, caption, inline.in_dialog(), force_new=True
+    )
     await notify_new_personal(bot, session, user, order)

@@ -61,13 +61,23 @@ async def show_screen(
     banner: Banner,
     caption: str,
     keyboard: InlineKeyboardMarkup | None = None,
+    force_new: bool = False,
 ) -> None:
     """Render a screen for the user by editing the existing message when possible.
+
+    With ``force_new`` the screen is posted as a brand-new message at the bottom
+    of the chat instead of being edited in place. This is used right after the
+    user sends a text message (e.g. /start or an article code): editing a message
+    that now sits above the user's text would look unresponsive.
 
     Falls back gracefully: if a cached file_id is stale/invalid it is dropped and
     the banner is re-uploaded from disk; if the message can't be edited at all a
     new one is sent.
     """
+    if force_new:
+        await _send_fresh(bot, session, user, banner, caption, keyboard)
+        return
+
     cached_id = await repo.get_cached_file_id(session, banner.value)
     media_source: str | FSInputFile = cached_id or FSInputFile(banner.path)
 

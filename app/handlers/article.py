@@ -43,7 +43,13 @@ async def process_article(bot: Bot, session: AsyncSession, user: User, code: str
     code = code.strip()
     if not ARTICLE_RE.match(code):
         await show_screen(
-            bot, session, user, Banner.ARTICLE, texts.ARTICLE_INVALID, inline.cancel_to_menu()
+            bot,
+            session,
+            user,
+            Banner.ARTICLE,
+            texts.ARTICLE_INVALID,
+            inline.cancel_to_menu(),
+            force_new=True,
         )
         return
 
@@ -57,6 +63,7 @@ async def process_article(bot: Bot, session: AsyncSession, user: User, code: str
             Banner.REJECTED,
             texts.REJECTED_CATALOG.format(code=code),
             inline.catalog_rejected(),
+            force_new=True,
         )
         return
 
@@ -75,4 +82,6 @@ async def process_article(bot: Bot, session: AsyncSession, user: User, code: str
     kb.button(text="💳 Перейти к оплате", callback_data=f"pay:proceed:{order.id}")
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
     kb.adjust(1)
-    await show_screen(bot, session, user, Banner.APPROVED, caption, kb.as_markup())
+    await show_screen(
+        bot, session, user, Banner.APPROVED, caption, kb.as_markup(), force_new=True
+    )

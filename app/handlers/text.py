@@ -35,5 +35,5 @@ async def route_text(message: Message, bot: Bot, session: AsyncSession, user: Us
             )
         return
 
-    # Default: gently bring the user back to the main menu.
-    await show_menu(bot, session, user)
+    # Default: gently bring the user back to the main menu (fresh, at the bottom).
+    await show_menu(bot, session, user, force_new=True)

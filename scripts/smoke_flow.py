@@ -150,7 +150,14 @@ async def main() -> None:
     dp = create_dispatcher()
 
     def screen_caption() -> str:
-        return last("EditMessageMedia")["media"]["caption"]
+        # The current screen is whatever was most recently shown — either an
+        # in-place edit (EditMessageMedia) or a fresh post (SendPhoto).
+        for name, data in reversed(calls):
+            if name == "EditMessageMedia":
+                return data["media"]["caption"]
+            if name == "SendPhoto":
+                return data.get("caption", "")
+        raise AssertionError("no screen was rendered")
 
     # 1) /start -> first screen is SENT (no existing message yet)
     await dp.feed_update(bot, msg_update(CUSTOMER_ID, "/start"))

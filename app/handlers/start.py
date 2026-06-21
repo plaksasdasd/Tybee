@@ -13,7 +13,7 @@ router = Router(name="start")
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot, session: AsyncSession, user: User) -> None:
-    await show_menu(bot, session, user)
+    await show_menu(bot, session, user, force_new=True)
 
 
 @router.callback_query(F.data == "menu:open")

@@ -13,10 +13,14 @@ from app.services.navigation import show_screen
 from app.states import UserState
 
 
-async def show_menu(bot: Bot, session: AsyncSession, user: User) -> None:
+async def show_menu(
+    bot: Bot, session: AsyncSession, user: User, *, force_new: bool = False
+) -> None:
     await repo.set_state(session, user, UserState.MENU)
     user.current_order_id = None
-    await show_screen(bot, session, user, Banner.WELCOME, texts.WELCOME, inline.main_menu())
+    await show_screen(
+        bot, session, user, Banner.WELCOME, texts.WELCOME, inline.main_menu(), force_new=force_new
+    )
 
 
 async def show_payment(bot: Bot, session: AsyncSession, user: User, order) -> None:
