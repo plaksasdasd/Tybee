@@ -25,11 +25,33 @@ from app.db.models import User
 logger = logging.getLogger(__name__)
 
 
-async def _photo_input(session: AsyncSession, banner: Banner):
-    file_id = await repo.get_cached_file_id(session, banner.value)
-    if file_id:
-        return file_id
-    return FSInputFile(banner.path)
+def _is_bad_file_id(exc: TelegramBadRequest) -> bool:
+    return "file identifier" in str(exc).lower()
+
+
+async def _cache_from(session: AsyncSession, banner: Banner, message: Message | bool) -> None:
+    if isinstance(message, Message) and message.photo:
+        await repo.set_cached_file_id(session, banner.value, message.photo[-1].file_id)
+
+
+async def _send_fresh(
+    bot: Bot,
+    session: AsyncSession,
+    user: User,
+    banner: Banner,
+    caption: str,
+    keyboard: InlineKeyboardMarkup | None,
+) -> None:
+    """Send a brand-new screen message straight from disk and remember its id."""
+    sent = await bot.send_photo(
+        chat_id=user.id,
+        photo=FSInputFile(banner.path),
+        caption=caption,
+        parse_mode="HTML",
+        reply_markup=keyboard,
+    )
+    await repo.set_screen(session, user, sent.message_id)
+    await _cache_from(session, banner, sent)
 
 
 async def show_screen(
@@ -40,8 +62,14 @@ async def show_screen(
     caption: str,
     keyboard: InlineKeyboardMarkup | None = None,
 ) -> None:
-    """Render a screen for the user by editing the existing message when possible."""
-    media_source = await _photo_input(session, banner)
+    """Render a screen for the user by editing the existing message when possible.
+
+    Falls back gracefully: if a cached file_id is stale/invalid it is dropped and
+    the banner is re-uploaded from disk; if the message can't be edited at all a
+    new one is sent.
+    """
+    cached_id = await repo.get_cached_file_id(session, banner.value)
+    media_source: str | FSInputFile = cached_id or FSInputFile(banner.path)
 
     if user.screen_message_id is not None:
         try:
@@ -51,22 +79,28 @@ async def show_screen(
                 media=InputMediaPhoto(media=media_source, caption=caption, parse_mode="HTML"),
                 reply_markup=keyboard,
             )
-            if isinstance(result, Message) and result.photo:
-                await repo.set_cached_file_id(session, banner.value, result.photo[-1].file_id)
+            await _cache_from(session, banner, result)
             return
         except TelegramBadRequest as exc:
             if "message is not modified" in str(exc).lower():
-                # Caption/markup identical — nothing to do.
                 return
-            logger.info("Could not edit screen for %s, resending: %s", user.id, exc)
+            if cached_id is not None and _is_bad_file_id(exc):
+                # Stale cached file_id — drop it and retry the edit from disk.
+                await repo.set_cached_file_id(session, banner.value, "")
+                try:
+                    result = await bot.edit_message_media(
+                        chat_id=user.id,
+                        message_id=user.screen_message_id,
+                        media=InputMediaPhoto(
+                            media=FSInputFile(banner.path), caption=caption, parse_mode="HTML"
+                        ),
+                        reply_markup=keyboard,
+                    )
+                    await _cache_from(session, banner, result)
+                    return
+                except TelegramBadRequest as retry_exc:
+                    logger.info("Edit retry failed for %s, resending: %s", user.id, retry_exc)
+            else:
+                logger.info("Could not edit screen for %s, resending: %s", user.id, exc)
 
-    sent = await bot.send_photo(
-        chat_id=user.id,
-        photo=media_source,
-        caption=caption,
-        parse_mode="HTML",
-        reply_markup=keyboard,
-    )
-    await repo.set_screen(session, user, sent.message_id)
-    if sent.photo:
-        await repo.set_cached_file_id(session, banner.value, sent.photo[-1].file_id)
+    await _send_fresh(bot, session, user, banner, caption, keyboard)

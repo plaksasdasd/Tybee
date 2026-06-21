@@ -129,6 +129,15 @@ def last(name: str) -> dict:
 
 
 async def main() -> None:
+    from app.config import get_settings
+
+    # Safety: this test drops all tables. Never let it run against the main DB.
+    if get_settings().postgres_db == "taibi":
+        raise SystemExit(
+            "Refusing to run smoke test against the 'taibi' database. "
+            "Set POSTGRES_DB=taibi_test (it uses fake file_ids that would break the live bot)."
+        )
+
     # Clean slate for deterministic assertions.
     async with engine.begin() as conn:
         from app.db.base import Base
