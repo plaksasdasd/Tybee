@@ -11,7 +11,8 @@ def main_menu() -> InlineKeyboardMarkup:
     kb.button(text=texts.BTN_NEW_ORDER, callback_data="order:start")
     kb.button(text=texts.BTN_PROFILE, callback_data="profile:open")
     kb.button(text=texts.BTN_SUPPORT, callback_data="support:open")
-    kb.adjust(1)
+    # Wide "Оформить заказ" on top, then Профиль + Поддержка in one row.
+    kb.adjust(1, 2)
     return kb.as_markup()
 
 

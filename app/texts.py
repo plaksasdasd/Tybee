@@ -161,10 +161,10 @@ ADMIN_PAYMENT_DECISION = "Решение по заказу #{order_id}: <b>{deci
 
 # ---- Buttons ----
 BTN_NEW_ORDER = "🛒 Оформить заказ"
-BTN_PROFILE = "👤 Личный кабинет"
+BTN_PROFILE = "👤 Профиль"
 BTN_SUPPORT = "🛟 Поддержка"
 BTN_BACK = "‹ Назад"
-BTN_MENU = "🏠 В меню"
+BTN_MENU = "‹ Назад"
 BTN_OFFER = "📄 Публичная оферта"
 BTN_MY_ORDERS = "📦 Мои заказы"
 BTN_HAS_ARTICLE = "✅ Да, есть артикул"
