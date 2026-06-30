@@ -35,8 +35,6 @@ def profile_menu() -> InlineKeyboardMarkup:
 def back_to_profile() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_BACK, callback_data="profile:open")
-    kb.button(text=texts.BTN_MENU, callback_data="menu:open")
-    kb.adjust(2)
     return kb.as_markup()
 
 
