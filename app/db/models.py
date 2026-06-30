@@ -13,6 +13,7 @@ from app.states import UserState
 class OrderType(str, Enum):
     ARTICLE = "article"
     PERSONAL = "personal"
+    MYSTERY_BOX = "mystery_box"
 
 
 class OrderStatus(str, Enum):
@@ -68,6 +69,17 @@ class Product(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     article: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(256))
+    price: Mapped[int] = mapped_column(Integer)
+    available: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class MysteryBox(Base):
+    """A Mystery Box variant offered to clients, managed via the /admin panel."""
+
+    __tablename__ = "mystery_boxes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(256))
     price: Mapped[int] = mapped_column(Integer)
     available: Mapped[bool] = mapped_column(Boolean, default=True)

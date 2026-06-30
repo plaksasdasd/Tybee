@@ -24,6 +24,15 @@ ARTICLE_RE = re.compile(r"^\d{6}$")
 async def order_start(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
     await repo.set_state(session, user, UserState.MENU)
     await show_screen(
+        bot, session, user, Banner.ARTICLE, texts.ORDER_CHOICE, inline.order_choice()
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "order:article")
+async def order_article(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    await repo.set_state(session, user, UserState.MENU)
+    await show_screen(
         bot, session, user, Banner.ARTICLE, texts.ARTICLE_ALREADY, inline.article_choice()
     )
     await call.answer()
@@ -35,34 +44,6 @@ async def ask_article(call: CallbackQuery, bot: Bot, session: AsyncSession, user
     await show_screen(
         bot, session, user, Banner.ARTICLE, texts.ARTICLE_PROMPT, inline.cancel_to_menu()
     )
-    await call.answer()
-
-
-@router.callback_query(F.data == "order:catalog")
-async def show_catalog(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
-    await repo.set_state(session, user, UserState.MENU)
-    products = await repo.list_available_products(session)
-    if products:
-        await show_screen(
-            bot, session, user, Banner.ARTICLE, texts.CATALOG_LIST, inline.catalog_list(products)
-        )
-    else:
-        await show_screen(
-            bot, session, user, Banner.ARTICLE, texts.CATALOG_EMPTY, inline.article_choice()
-        )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("catalog:item:"))
-async def pick_catalog_item(
-    call: CallbackQuery, bot: Bot, session: AsyncSession, user: User
-) -> None:
-    product = await repo.get_product(session, int(call.data.split(":")[2]))
-    if product is None or not product.available:
-        await call.answer("Товар недоступен", show_alert=True)
-        await show_catalog(call, bot, session, user)
-        return
-    await _offer_product(bot, session, user, product)
     await call.answer()
 
 

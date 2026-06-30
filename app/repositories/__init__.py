@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db.models import MediaCache, Order, OrderStatus, Product, RelayMap, User
+from app.db.models import MediaCache, MysteryBox, Order, OrderStatus, Product, RelayMap, User
 from app.states import UserState
 
 
@@ -80,13 +80,6 @@ async def list_products(session: AsyncSession) -> list[Product]:
     return list(result)
 
 
-async def list_available_products(session: AsyncSession) -> list[Product]:
-    result = await session.scalars(
-        select(Product).where(Product.available.is_(True)).order_by(Product.title)
-    )
-    return list(result)
-
-
 async def get_product(session: AsyncSession, product_id: int) -> Product | None:
     return await session.get(Product, product_id)
 
@@ -110,6 +103,38 @@ async def toggle_product(session: AsyncSession, product: Product) -> None:
 
 async def delete_product(session: AsyncSession, product: Product) -> None:
     await session.delete(product)
+
+
+# ---- Mystery boxes ----
+async def list_boxes(session: AsyncSession) -> list[MysteryBox]:
+    result = await session.scalars(select(MysteryBox).order_by(MysteryBox.id.desc()))
+    return list(result)
+
+
+async def list_available_boxes(session: AsyncSession) -> list[MysteryBox]:
+    result = await session.scalars(
+        select(MysteryBox).where(MysteryBox.available.is_(True)).order_by(MysteryBox.price)
+    )
+    return list(result)
+
+
+async def get_box(session: AsyncSession, box_id: int) -> MysteryBox | None:
+    return await session.get(MysteryBox, box_id)
+
+
+async def create_box(session: AsyncSession, title: str, price: int) -> MysteryBox:
+    box = MysteryBox(title=title, price=price, available=True)
+    session.add(box)
+    await session.flush()
+    return box
+
+
+async def toggle_box(session: AsyncSession, box: MysteryBox) -> None:
+    box.available = not box.available
+
+
+async def delete_box(session: AsyncSession, box: MysteryBox) -> None:
+    await session.delete(box)
 
 
 async def count_rows(session: AsyncSession, model: type) -> int:

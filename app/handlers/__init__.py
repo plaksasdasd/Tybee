@@ -8,6 +8,7 @@ from app.handlers import (
     article,
     ban,
     dialog,
+    mystery,
     payment,
     personal,
     profile,
@@ -27,6 +28,7 @@ def build_router() -> Router:
     root.include_router(start.router)
     root.include_router(profile.router)
     root.include_router(article.router)
+    root.include_router(mystery.router)
     root.include_router(payment.router)
     root.include_router(personal.router)
     root.include_router(dialog.router)
