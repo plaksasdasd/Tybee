@@ -1,0 +1,65 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_hours:
+        description: How long to keep the bot running
+        required: false
+        default: "6"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: taibi
+          POSTGRES_USER: taibi
+          POSTGRES_PASSWORD: taibi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U taibi -d taibi"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Validate Python sources
+        run: python -m compileall app scripts
+
+      - name: Build container image
+        run: docker build -t tybee-bot .
+
+      - name: Run bot for the test window
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
+          SUPPORT_CHAT_ID: ${{ secrets.SUPPORT_CHAT_ID }}
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_DB: taibi
+          POSTGRES_USER: taibi
+          POSTGRES_PASSWORD: taibi
+        run: |
+          hours="${{ inputs.run_hours }}"
+          if [ -z "$hours" ]; then
+            hours="6"
+          fi
+          timeout "${hours}h" python -m app
