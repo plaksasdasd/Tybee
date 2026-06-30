@@ -61,6 +61,23 @@ export $(grep -v '^#' .env | xargs) && export POSTGRES_HOST=localhost
 python -m app
 ```
 
+## CI/CD
+
+В репозитории есть workflow `.github/workflows/ci-cd.yml`, который:
+
+- собирает код и Docker-образ на `push` в `main`;
+- умеет вручную запускать бота на тестовый интервал до 6 часов
+  (`workflow_dispatch`).
+
+Для ручного запуска нужны secrets:
+
+- `BOT_TOKEN`
+- `ADMIN_IDS`
+- `SUPPORT_CHAT_ID` — опционально
+
+Во время тестового запуска workflow поднимает PostgreSQL service и стартует бот
+через `python -m app`.
+
 ## Демо-каталог
 
 Поиск по артикулу работает по таблице `products`. Засеянные артикулы для проверки:
