@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app import texts
-from app.db.models import FULFILLMENT_STATUSES, Product
+from app.db.models import FULFILLMENT_STATUSES, MysteryBox, Product
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -40,24 +40,42 @@ def back_to_profile() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def article_choice() -> InlineKeyboardMarkup:
+def order_choice() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=texts.BTN_HAS_ARTICLE, callback_data="order:has_article")
-    kb.button(text=texts.BTN_BROWSE_CATALOG, callback_data="order:catalog")
-    kb.button(text=texts.BTN_NO_ARTICLE, callback_data="order:personal")
+    kb.button(text=texts.BTN_ORDER_ARTICLE, callback_data="order:article")
+    kb.button(text=texts.BTN_ORDER_MYSTERY, callback_data="order:mystery")
+    kb.button(text=texts.BTN_ORDER_PERSONAL, callback_data="order:personal")
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def catalog_list(products: list[Product]) -> InlineKeyboardMarkup:
+def article_choice() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    for product in products:
+    kb.button(text=texts.BTN_HAS_ARTICLE, callback_data="order:has_article")
+    kb.button(text=texts.BTN_NO_ARTICLE, callback_data="order:personal")
+    kb.button(text=texts.BTN_BACK, callback_data="order:start")
+    kb.button(text=texts.BTN_MENU, callback_data="menu:open")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def mystery_boxes(boxes: list[MysteryBox]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for box in boxes:
         kb.button(
-            text=f"{product.title} — {product.price} ₽",
-            callback_data=f"catalog:item:{product.id}",
+            text=f"🎁 {box.title} — {box.price} ₽",
+            callback_data=f"mystery:item:{box.id}",
         )
-    kb.button(text=texts.BTN_PERSONAL, callback_data="order:personal")
+    kb.button(text=texts.BTN_BACK, callback_data="order:start")
+    kb.button(text=texts.BTN_MENU, callback_data="menu:open")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def mystery_empty() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_BACK, callback_data="order:start")
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
     kb.adjust(1)
     return kb.as_markup()
@@ -124,9 +142,40 @@ def admin_panel() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_ADM_PRODUCTS, callback_data="adm:prod:list")
     kb.button(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")
+    kb.button(text=texts.BTN_ADM_BOXES, callback_data="adm:box:list")
     kb.button(text=texts.BTN_ADM_STATS, callback_data="adm:stats")
     kb.button(text=texts.BTN_ADM_CLOSE, callback_data="adm:panel:close")
     kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_boxes(boxes: list[MysteryBox]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for box in boxes:
+        mark = "🟢" if box.available else "🔴"
+        kb.button(
+            text=f"{mark} {box.title} · {box.price} ₽",
+            callback_data=f"adm:box:view:{box.id}",
+        )
+    kb.button(text=texts.BTN_ADM_ADD_BOX, callback_data="adm:box:add")
+    kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_box_view(box: MysteryBox) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    toggle = texts.BTN_ADM_TOGGLE_OFF if box.available else texts.BTN_ADM_TOGGLE_ON
+    kb.button(text=toggle, callback_data=f"adm:box:toggle:{box.id}")
+    kb.button(text=texts.BTN_ADM_DELETE, callback_data=f"adm:box:del:{box.id}")
+    kb.button(text=texts.BTN_ADM_BACK_BOXES, callback_data="adm:box:list")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_add_box_cancel() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_CANCEL, callback_data="adm:box:list")
     return kb.as_markup()
 
 

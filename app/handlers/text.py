@@ -5,7 +5,7 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User
-from app.handlers.admin_panel import process_new_product
+from app.handlers.admin_panel import process_new_box, process_new_product
 from app.handlers.article import process_article
 from app.handlers.personal import process_personal
 from app.services.notify import relay_user_to_support
@@ -25,6 +25,10 @@ async def route_text(message: Message, bot: Bot, session: AsyncSession, user: Us
 
     if state == UserState.ADMIN_ADD_PRODUCT.value:
         await process_new_product(message, session, user)
+        return
+
+    if state == UserState.ADMIN_ADD_BOX.value:
+        await process_new_box(message, session, user)
         return
 
     if state == UserState.AWAIT_PERSONAL.value:
