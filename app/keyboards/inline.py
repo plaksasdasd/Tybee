@@ -4,6 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app import texts
+from app.db.models import FULFILLMENT_STATUSES
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -87,6 +88,27 @@ def in_dialog() -> InlineKeyboardMarkup:
 def review_pending() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
+    return kb.as_markup()
+
+
+def order_status(order_id: int, current: str) -> InlineKeyboardMarkup:
+    """Support control panel: one button per fulfillment status.
+
+    The current status is marked with a check; pressing a button moves the order
+    to that status and notifies the client.
+    """
+    kb = InlineKeyboardBuilder()
+    for status in FULFILLMENT_STATUSES:
+        label = texts.STATUS_LABELS.get(status.value, status.value)
+        prefix = "✅ " if status.value == current else ""
+        kb.button(text=f"{prefix}{label}", callback_data=f"adm:status:{order_id}:{status.value}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def pay_fine(fine: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_PAY_FINE.format(fine=fine), callback_data="unban:pay")
     return kb.as_markup()
 
 

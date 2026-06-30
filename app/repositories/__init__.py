@@ -28,6 +28,18 @@ async def get_or_create_user(session: AsyncSession, tg_user: TgUser) -> User:
     return user
 
 
+async def get_user(session: AsyncSession, user_id: int) -> User | None:
+    return await session.get(User, user_id)
+
+
+async def get_user_by_thread(session: AsyncSession, thread_id: int) -> User | None:
+    return await session.scalar(select(User).where(User.support_thread_id == thread_id))
+
+
+async def set_banned(session: AsyncSession, user: User, banned: bool) -> None:
+    user.is_banned = banned
+
+
 async def set_state(session: AsyncSession, user: User, state: UserState) -> None:
     user.state = state.value
 

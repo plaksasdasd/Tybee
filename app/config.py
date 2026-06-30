@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     admin_ids_raw: str = Field(default="", validation_alias="ADMIN_IDS")
     support_chat_id: int | None = None
 
+    # Payment requisites shown to the client when an invoice is issued. If empty,
+    # a sensible placeholder from texts is used.
+    payment_requisites: str = ""
+    # Fine (in Telegram Stars, XTR) a banned user must pay to get unblocked.
+    unban_fine_stars: int = 50
+
     postgres_host: str = "db"
     postgres_port: int = 5432
     postgres_db: str = "taibi"
