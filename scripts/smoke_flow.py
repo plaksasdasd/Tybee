@@ -407,6 +407,42 @@ async def main() -> None:
         assert refreshed is not None and not refreshed.available, "toggle did not disable product"
     print("/admin toggle -> product disabled")
 
+    # 22) client browses the catalog and picks an item -> order + payment offer
+    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "/start"))
+    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:start", screen_id))
+    calls.clear()
+    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:catalog", screen_id))
+    cap = screen_caption()
+    assert "каталог" in cap.lower(), cap
+    async with session_factory() as s:
+        from sqlalchemy import select as _select
+
+        from app.db.models import Product as _Product
+
+        first = await s.scalar(
+            _select(_Product).where(_Product.available.is_(True)).order_by(_Product.title)
+        )
+    await dp.feed_update(bot, cb_update(CUSTOMER_ID, f"catalog:item:{first.id}", screen_id))
+    assert "одобрили" in screen_caption().lower(), screen_caption()
+    async with session_factory() as s:
+        from app.db.models import Order as _Order
+
+        cust = await s.get(User, CUSTOMER_ID)
+        co = await s.get(_Order, cust.current_order_id)
+        assert co is not None and co.article == first.article, "catalog pick did not create order"
+    print("client catalog -> picked item -> order created")
+
+    # 23) /ban by explicit user id (in admin DM) -> client banned
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, f"/ban {CUSTOMER_ID}"))
+    async with session_factory() as s:
+        cust = await s.get(User, CUSTOMER_ID)
+        assert cust.is_banned, "/ban by id did not ban"
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, f"/pardon {CUSTOMER_ID}"))
+    async with session_factory() as s:
+        cust = await s.get(User, CUSTOMER_ID)
+        assert not cust.is_banned, "/pardon by id did not unban"
+    print("/ban + /pardon by id (DM) -> works")
+
     await bot.session.close()
     print("\nALL FLOW ASSERTIONS PASSED ✅")
 

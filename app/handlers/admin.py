@@ -22,6 +22,10 @@ router = Router(name="admin")
 SUPPORT_TARGET = get_settings().support_target
 SUPPORT_CHAT_ID = get_settings().support_chat_id
 
+# Support commands may be issued in the support chat (targeting a thread/reply)
+# or in an admin's private chat (targeting an explicit id/@username).
+_IN_SUPPORT_OR_DM = (F.chat.id == SUPPORT_TARGET) | (F.chat.type == "private")
+
 
 def _is_admin(user: User) -> bool:
     return user.is_admin or user.id in get_settings().admin_ids
@@ -38,6 +42,27 @@ async def _resolve_target_user(session: AsyncSession, message: Message) -> User 
         if user_id is not None:
             return await repo.get_user(session, user_id)
     return None
+
+
+async def _resolve_command_target(
+    session: AsyncSession, message: Message, args: str | None
+) -> tuple[User | None, str | None]:
+    """Resolve a /ban|/pardon target: explicit id/@username arg, else thread/reply.
+
+    Returns (user, error_text). When the id is unknown the user row is created so
+    the block takes effect as soon as the client opens the bot.
+    """
+    token = args.split()[0] if args else ""
+    if token:
+        if token.startswith("@") or not token.lstrip("-").isdigit():
+            target = await repo.get_user_by_username(session, token)
+            if target is None:
+                return None, texts.TARGET_USERNAME_NOT_FOUND.format(username=token)
+            return target, None
+        return await repo.get_or_create_user_by_id(session, int(token)), None
+
+    target = await _resolve_target_user(session, message)
+    return target, None
 
 
 # ---- Payment decision (buttons on the payment notification) ----
@@ -186,36 +211,46 @@ async def cmd_order(
     await message.reply(f"Счёт по заказу #{order.id} отправлен клиенту.")
 
 
-@router.message(Command("ban"), F.chat.id == SUPPORT_TARGET)
-async def cmd_ban(message: Message, session: AsyncSession, user: User) -> None:
+@router.message(Command("ban"), _IN_SUPPORT_OR_DM)
+async def cmd_ban(
+    message: Message, command: CommandObject, session: AsyncSession, user: User
+) -> None:
     if not _is_admin(user):
         await message.reply(texts.CMD_NOT_ALLOWED)
         return
-    target = await _resolve_target_user(session, message)
+    target, error = await _resolve_command_target(session, message, command.args)
+    if error is not None:
+        await message.reply(error, parse_mode="HTML")
+        return
     if target is None:
-        await message.reply(texts.ORDER_NEED_THREAD)
+        await message.reply(texts.BAN_USAGE, parse_mode="HTML")
         return
     if target.is_banned:
         await message.reply(texts.ALREADY_BANNED)
         return
     await repo.set_banned(session, target, True)
-    await message.reply(texts.BAN_DONE)
+    await message.reply(texts.BAN_DONE + f"\n{repo.display_name(target) or target.id}")
 
 
-@router.message(Command("pardon"), F.chat.id == SUPPORT_TARGET)
-async def cmd_pardon(message: Message, session: AsyncSession, user: User) -> None:
+@router.message(Command("pardon"), _IN_SUPPORT_OR_DM)
+async def cmd_pardon(
+    message: Message, command: CommandObject, session: AsyncSession, user: User
+) -> None:
     if not _is_admin(user):
         await message.reply(texts.CMD_NOT_ALLOWED)
         return
-    target = await _resolve_target_user(session, message)
+    target, error = await _resolve_command_target(session, message, command.args)
+    if error is not None:
+        await message.reply(error, parse_mode="HTML")
+        return
     if target is None:
-        await message.reply(texts.ORDER_NEED_THREAD)
+        await message.reply(texts.PARDON_USAGE, parse_mode="HTML")
         return
     if not target.is_banned:
         await message.reply(texts.NOT_BANNED)
         return
     await repo.set_banned(session, target, False)
-    await message.reply(texts.PARDON_DONE)
+    await message.reply(texts.PARDON_DONE + f"\n{repo.display_name(target) or target.id}")
 
 
 # ---- Relaying support messages back to the client ----

@@ -43,7 +43,21 @@ def back_to_profile() -> InlineKeyboardMarkup:
 def article_choice() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_HAS_ARTICLE, callback_data="order:has_article")
+    kb.button(text=texts.BTN_BROWSE_CATALOG, callback_data="order:catalog")
     kb.button(text=texts.BTN_NO_ARTICLE, callback_data="order:personal")
+    kb.button(text=texts.BTN_MENU, callback_data="menu:open")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def catalog_list(products: list[Product]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for product in products:
+        kb.button(
+            text=f"{product.title} — {product.price} ₽",
+            callback_data=f"catalog:item:{product.id}",
+        )
+    kb.button(text=texts.BTN_PERSONAL, callback_data="order:personal")
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
     kb.adjust(1)
     return kb.as_markup()

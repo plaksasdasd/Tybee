@@ -52,6 +52,8 @@ async def _set_commands(bot: Bot) -> None:
     admin_private_commands = [
         BotCommand(command="start", description="Открыть меню Тайби"),
         BotCommand(command="admin", description="Админ-панель: каталог и статистика"),
+        BotCommand(command="ban", description="Заблокировать: /ban id или @username"),
+        BotCommand(command="pardon", description="Разблокировать: /pardon id или @username"),
     ]
     scopes: list[tuple[int, list[BotCommand]]] = [
         (admin_id, admin_private_commands) for admin_id in settings.admin_ids

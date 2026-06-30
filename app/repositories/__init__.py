@@ -36,6 +36,21 @@ async def get_user_by_thread(session: AsyncSession, thread_id: int) -> User | No
     return await session.scalar(select(User).where(User.support_thread_id == thread_id))
 
 
+async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
+    return await session.scalar(
+        select(User).where(func.lower(User.username) == username.lstrip("@").lower())
+    )
+
+
+async def get_or_create_user_by_id(session: AsyncSession, user_id: int) -> User:
+    user = await session.get(User, user_id)
+    if user is None:
+        user = User(id=user_id, is_admin=user_id in get_settings().admin_ids)
+        session.add(user)
+        await session.flush()
+    return user
+
+
 async def set_banned(session: AsyncSession, user: User, banned: bool) -> None:
     user.is_banned = banned
 
@@ -62,6 +77,13 @@ async def find_product_by_article(session: AsyncSession, article: str) -> Produc
 
 async def list_products(session: AsyncSession) -> list[Product]:
     result = await session.scalars(select(Product).order_by(Product.id.desc()))
+    return list(result)
+
+
+async def list_available_products(session: AsyncSession) -> list[Product]:
+    result = await session.scalars(
+        select(Product).where(Product.available.is_(True)).order_by(Product.title)
+    )
     return list(result)
 
 
