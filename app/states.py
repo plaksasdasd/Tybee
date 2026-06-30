@@ -14,3 +14,5 @@ class UserState(str, Enum):
     AWAIT_ARTICLE = "await_article"
     AWAIT_PERSONAL = "await_personal"
     DIALOG = "dialog"
+    # Admin is entering a new catalog product via the /admin panel.
+    ADMIN_ADD_PRODUCT = "admin_add_product"

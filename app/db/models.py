@@ -22,6 +22,26 @@ class OrderStatus(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     IN_DIALOG = "in_dialog"
+    # Fulfillment statuses managed by support via inline buttons in the order thread.
+    ACCEPTED = "accepted"
+    BOUGHT = "bought"
+    SHIPPING_TO_RU = "shipping_to_ru"
+    CUSTOMS = "customs"
+    SHIPPING_IN_RU = "shipping_in_ru"
+    AWAITING_PICKUP = "awaiting_pickup"
+    RECEIVED = "received"
+
+
+# Ordered list of fulfillment statuses shown as the support control panel.
+FULFILLMENT_STATUSES: tuple[OrderStatus, ...] = (
+    OrderStatus.ACCEPTED,
+    OrderStatus.BOUGHT,
+    OrderStatus.SHIPPING_TO_RU,
+    OrderStatus.CUSTOMS,
+    OrderStatus.SHIPPING_IN_RU,
+    OrderStatus.AWAITING_PICKUP,
+    OrderStatus.RECEIVED,
+)
 
 
 class User(Base):
@@ -31,10 +51,13 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64))
     full_name: Mapped[str] = mapped_column(String(256), default="")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     state: Mapped[str] = mapped_column(String(32), default=UserState.MENU.value)
     # The single "screen" message we keep editing instead of deleting/resending.
     screen_message_id: Mapped[int | None] = mapped_column(BigInteger)
     current_order_id: Mapped[int | None] = mapped_column(Integer)
+    # Forum topic (thread) id in the support chat dedicated to this client.
+    support_thread_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     orders: Mapped[list["Order"]] = relationship(back_populates="user")

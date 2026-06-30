@@ -7,20 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import repositories as repo
 from app import texts
 from app.assets import Banner
-from app.db.models import OrderStatus, User
+from app.db.models import User
 from app.keyboards import inline
 from app.services.navigation import show_screen
 
 router = Router(name="profile")
-
-_STATUS_LABELS = {
-    OrderStatus.NEW.value: "новый",
-    OrderStatus.AWAITING_PAYMENT.value: "ожидает оплаты",
-    OrderStatus.PAYMENT_REVIEW.value: "проверка оплаты",
-    OrderStatus.APPROVED.value: "одобрен",
-    OrderStatus.REJECTED.value: "отклонён",
-    OrderStatus.IN_DIALOG.value: "в работе",
-}
 
 
 @router.callback_query(F.data == "profile:open")
@@ -54,7 +45,7 @@ async def show_orders(call: CallbackQuery, bot: Bot, session: AsyncSession, user
     lines = [texts.ORDERS_HEADER]
     for order in orders:
         title = order.title or "Персональная заявка"
-        status = _STATUS_LABELS.get(order.status, order.status)
+        status = texts.STATUS_LABELS.get(order.status, order.status)
         price = f" — {order.price} ₽" if order.price else ""
         lines.append(f"<b>#{order.id}</b> {title}{price}\n   └ статус: {status}")
     await show_screen(

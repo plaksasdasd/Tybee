@@ -38,6 +38,56 @@ async def ask_article(call: CallbackQuery, bot: Bot, session: AsyncSession, user
     await call.answer()
 
 
+@router.callback_query(F.data == "order:catalog")
+async def show_catalog(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    await repo.set_state(session, user, UserState.MENU)
+    products = await repo.list_available_products(session)
+    if products:
+        await show_screen(
+            bot, session, user, Banner.ARTICLE, texts.CATALOG_LIST, inline.catalog_list(products)
+        )
+    else:
+        await show_screen(
+            bot, session, user, Banner.ARTICLE, texts.CATALOG_EMPTY, inline.article_choice()
+        )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("catalog:item:"))
+async def pick_catalog_item(
+    call: CallbackQuery, bot: Bot, session: AsyncSession, user: User
+) -> None:
+    product = await repo.get_product(session, int(call.data.split(":")[2]))
+    if product is None or not product.available:
+        await call.answer("Товар недоступен", show_alert=True)
+        await show_catalog(call, bot, session, user)
+        return
+    await _offer_product(bot, session, user, product)
+    await call.answer()
+
+
+async def _offer_product(bot: Bot, session: AsyncSession, user: User, product) -> None:
+    """Create an article order for a catalog product and show the payment offer."""
+    await repo.set_state(session, user, UserState.MENU)
+    order = await repo.create_order(
+        session,
+        user,
+        type=OrderType.ARTICLE.value,
+        status=OrderStatus.AWAITING_PAYMENT.value,
+        article=product.article,
+        title=product.title,
+        price=product.price,
+    )
+    caption = texts.FOUND.format(title=product.title, code=product.article, price=product.price)
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💳 Перейти к оплате", callback_data=f"pay:proceed:{order.id}")
+    kb.button(text=texts.BTN_MENU, callback_data="menu:open")
+    kb.adjust(1)
+    await show_screen(
+        bot, session, user, Banner.APPROVED, caption, kb.as_markup(), force_new=True
+    )
+
+
 async def process_article(bot: Bot, session: AsyncSession, user: User, code: str) -> None:
     """Validate an article code, search the catalog and route accordingly."""
     code = code.strip()
@@ -67,21 +117,4 @@ async def process_article(bot: Bot, session: AsyncSession, user: User, code: str
         )
         return
 
-    await repo.set_state(session, user, UserState.MENU)
-    order = await repo.create_order(
-        session,
-        user,
-        type=OrderType.ARTICLE.value,
-        status=OrderStatus.AWAITING_PAYMENT.value,
-        article=code,
-        title=product.title,
-        price=product.price,
-    )
-    caption = texts.FOUND.format(title=product.title, code=code, price=product.price)
-    kb = InlineKeyboardBuilder()
-    kb.button(text="💳 Перейти к оплате", callback_data=f"pay:proceed:{order.id}")
-    kb.button(text=texts.BTN_MENU, callback_data="menu:open")
-    kb.adjust(1)
-    await show_screen(
-        bot, session, user, Banner.APPROVED, caption, kb.as_markup(), force_new=True
-    )
+    await _offer_product(bot, session, user, product)

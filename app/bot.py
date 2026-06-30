@@ -5,7 +5,11 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeChat,
+)
 
 from app.config import get_settings
 from app.db.base import init_models
@@ -37,6 +41,30 @@ async def _set_commands(bot: Bot) -> None:
     await bot.set_my_commands(
         [BotCommand(command="start", description="Открыть меню Тайби")]
     )
+    settings = get_settings()
+    # Support commands belong in the support chat (their handlers are scoped there).
+    support_commands = [
+        BotCommand(command="order", description="Создать заказ: /order название описание сумма"),
+        BotCommand(command="ban", description="Заблокировать клиента"),
+        BotCommand(command="pardon", description="Разблокировать клиента"),
+    ]
+    # The admin panel is a private-chat command for administrators.
+    admin_private_commands = [
+        BotCommand(command="start", description="Открыть меню Тайби"),
+        BotCommand(command="admin", description="Админ-панель: каталог и статистика"),
+        BotCommand(command="ban", description="Заблокировать: /ban id или @username"),
+        BotCommand(command="pardon", description="Разблокировать: /pardon id или @username"),
+    ]
+    scopes: list[tuple[int, list[BotCommand]]] = [
+        (admin_id, admin_private_commands) for admin_id in settings.admin_ids
+    ]
+    if settings.support_chat_id is not None:
+        scopes.append((settings.support_chat_id, support_commands))
+    for chat_id, commands in scopes:
+        try:
+            await bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=chat_id))
+        except TelegramBadRequest as exc:
+            logger.info("Could not set commands for %s: %s", chat_id, exc)
 
 
 async def run() -> None:

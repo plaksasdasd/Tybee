@@ -16,10 +16,13 @@ from datetime import datetime, timezone
 from aiogram import Bot
 from aiogram.methods import (
     AnswerCallbackQuery,
+    AnswerPreCheckoutQuery,
     CopyMessage,
     EditMessageMedia,
     EditMessageReplyMarkup,
+    EditMessageText,
     GetMe,
+    SendInvoice,
     SendMessage,
     SendPhoto,
     SetMyCommands,
@@ -31,6 +34,8 @@ from aiogram.types import (
     Message,
     MessageId,
     PhotoSize,
+    PreCheckoutQuery,
+    SuccessfulPayment,
     Update,
 )
 from aiogram.types import User as TgUser
@@ -80,9 +85,16 @@ class RecorderBot(Bot):
             return _fake_message(int(data["chat_id"]), photo=True)
         if isinstance(method, SendMessage):
             return _fake_message(int(data["chat_id"]), text=data.get("text"))
+        if isinstance(method, SendInvoice):
+            return _fake_message(int(data["chat_id"]))
+        if isinstance(method, EditMessageText):
+            return _fake_message(int(data["chat_id"]), text=data.get("text"))
         if isinstance(method, CopyMessage):
             return MessageId(message_id=_next_id())
-        if isinstance(method, (AnswerCallbackQuery, EditMessageReplyMarkup)):
+        if isinstance(
+            method,
+            (AnswerCallbackQuery, EditMessageReplyMarkup, AnswerPreCheckoutQuery),
+        ):
             return True
         return True
 
@@ -107,6 +119,18 @@ def msg_update(user_id: int, text: str, reply_to: int | None = None) -> Update:
     return Update(update_id=_next_id(), message=m)
 
 
+def msg_no_reply(user_id: int, text: str) -> Update:
+    """A private message with no reply_to (so admin-reply relay won't catch it)."""
+    m = Message(
+        message_id=_next_id(),
+        date=datetime.now(timezone.utc),
+        chat=Chat(id=user_id, type="private"),
+        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
+        text=text,
+    )
+    return Update(update_id=_next_id(), message=m)
+
+
 def cb_update(user_id: int, data: str, screen_id: int) -> Update:
     screen = _fake_message(user_id, photo=True)
     object.__setattr__(screen, "message_id", screen_id)
@@ -118,6 +142,35 @@ def cb_update(user_id: int, data: str, screen_id: int) -> Update:
         data=data,
     )
     return Update(update_id=_next_id(), callback_query=cb)
+
+
+def precheckout_update(user_id: int) -> Update:
+    pcq = PreCheckoutQuery(
+        id=str(_next_id()),
+        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
+        currency="XTR",
+        total_amount=50,
+        invoice_payload="unban_fine",
+    )
+    return Update(update_id=_next_id(), pre_checkout_query=pcq)
+
+
+def payment_update(user_id: int) -> Update:
+    sp = SuccessfulPayment(
+        currency="XTR",
+        total_amount=50,
+        invoice_payload="unban_fine",
+        telegram_payment_charge_id="tg_charge",
+        provider_payment_charge_id="",
+    )
+    m = Message(
+        message_id=_next_id(),
+        date=datetime.now(timezone.utc),
+        chat=Chat(id=user_id, type="private"),
+        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
+        successful_payment=sp,
+    )
+    return Update(update_id=_next_id(), message=m)
 
 
 def find(name: str) -> list[dict]:
@@ -244,6 +297,151 @@ async def main() -> None:
     await dp.feed_update(bot, msg_update(CUSTOMER_ID, "000000"))  # not in catalog
     assert "нет в каталоге" in screen_caption().lower()
     print("unknown article -> 'нет в каталоге'")
+
+    # Grab a relay-mapped message id so support commands can target the customer
+    # (in a non-forum support chat, the target is resolved via the replied-to msg).
+    async with session_factory() as s:
+        from app.db.models import RelayMap
+        from sqlalchemy import select
+
+        rid = (await s.scalars(select(RelayMap.support_message_id))).all()[-1]
+
+    # 12) support issues an invoice with /order -> client receives it
+    calls.clear()
+    await dp.feed_update(
+        bot, msg_update(ADMIN_ID, "/order Куртка тёплая_зимняя 6900", reply_to=rid)
+    )
+    invoices = [d for d in find("SendPhoto") if int(d["chat_id"]) == CUSTOMER_ID]
+    assert invoices, "client did not receive the /order invoice"
+    assert "6900" in invoices[-1].get("caption", ""), invoices[-1].get("caption")
+    print("/order -> client invoiced")
+
+    async with session_factory() as s:
+        cust = await s.get(User, CUSTOMER_ID)
+        new_order_id = cust.current_order_id
+    assert new_order_id and new_order_id != order_id, "support order not created"
+
+    # 13) client pays the support order -> admin confirms -> status panel posted
+    await dp.feed_update(bot, cb_update(CUSTOMER_ID, f"pay:done:{new_order_id}", screen_id))
+    calls.clear()
+    await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:confirm:{new_order_id}", screen_id))
+    panels = [
+        d for d in find("SendMessage")
+        if "reply_markup" in d and "adm:status" in str(d["reply_markup"])
+    ]
+    assert panels, "no order status panel posted after approval"
+    print("approval -> status control panel posted")
+
+    # 14) support changes the order status -> client gets a notification
+    calls.clear()
+    await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:status:{new_order_id}:bought", screen_id))
+    notifs = [d for d in find("SendMessage") if int(d["chat_id"]) == CUSTOMER_ID]
+    assert any("Выкуплен" in d.get("text", "") for d in notifs), notifs
+    assert find("EditMessageText"), "status panel was not refreshed"
+    print("status change -> client notified (Выкуплен)")
+
+    # 15) /ban -> client blocked and shown the fine screen on next action
+    await dp.feed_update(bot, msg_update(ADMIN_ID, "/ban", reply_to=rid))
+    async with session_factory() as s:
+        cust = await s.get(User, CUSTOMER_ID)
+        assert cust.is_banned, "client was not banned"
+    calls.clear()
+    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "привет"))
+    ban_msgs = [d.get("text", "") for d in find("SendMessage") if int(d["chat_id"]) == CUSTOMER_ID]
+    assert any("штраф" in t.lower() for t in ban_msgs), ban_msgs
+    print("/ban -> client blocked + fine screen")
+
+    # 16) client pays the fine in Stars -> unbanned
+    await dp.feed_update(bot, precheckout_update(CUSTOMER_ID))
+    assert find("AnswerPreCheckoutQuery"), "pre-checkout was not answered"
+    await dp.feed_update(bot, payment_update(CUSTOMER_ID))
+    async with session_factory() as s:
+        cust = await s.get(User, CUSTOMER_ID)
+        assert not cust.is_banned, "client still banned after paying the fine"
+    print("fine paid -> client unbanned")
+
+    # 17) /ban then /pardon -> client unbanned by support
+    await dp.feed_update(bot, msg_update(ADMIN_ID, "/ban", reply_to=rid))
+    await dp.feed_update(bot, msg_update(ADMIN_ID, "/pardon", reply_to=rid))
+    async with session_factory() as s:
+        cust = await s.get(User, CUSTOMER_ID)
+        assert not cust.is_banned, "/pardon did not unban the client"
+    print("/pardon -> client unbanned")
+
+    # 18) /admin -> panel with catalog/stats buttons
+    calls.clear()
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "/admin"))
+    panel = [d for d in find("SendMessage") if "adm:prod:add" in str(d.get("reply_markup", ""))]
+    assert panel, "/admin did not open the panel"
+    print("/admin -> panel opened")
+
+    # 19) start add-product flow -> enter a new product line -> product created
+    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:prod:add", screen_id))
+    async with session_factory() as s:
+        adm = await s.get(User, ADMIN_ID)
+        assert adm.state == "admin_add_product", adm.state
+    calls.clear()
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "246810 Тестовая кофта оверсайз 4200"))
+    async with session_factory() as s:
+        from sqlalchemy import select as _select
+
+        from app.db.models import Product as _Product
+
+        prod = await s.scalar(_select(_Product).where(_Product.article == "246810"))
+        assert prod is not None and prod.price == 4200, "product was not created"
+        assert prod.title == "Тестовая кофта оверсайз"
+    print("/admin add product -> product created (246810)")
+
+    # 20) stats view renders
+    calls.clear()
+    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:stats", screen_id))
+    assert any("Статистика" in d.get("text", "") for d in find("EditMessageText")), "no stats"
+    print("/admin stats -> rendered")
+
+    # 21) toggle the product off -> becomes unavailable
+    await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:prod:toggle:{prod.id}", screen_id))
+    async with session_factory() as s:
+        from app.db.models import Product as _Product
+
+        refreshed = await s.get(_Product, prod.id)
+        assert refreshed is not None and not refreshed.available, "toggle did not disable product"
+    print("/admin toggle -> product disabled")
+
+    # 22) client browses the catalog and picks an item -> order + payment offer
+    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "/start"))
+    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:start", screen_id))
+    calls.clear()
+    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:catalog", screen_id))
+    cap = screen_caption()
+    assert "каталог" in cap.lower(), cap
+    async with session_factory() as s:
+        from sqlalchemy import select as _select
+
+        from app.db.models import Product as _Product
+
+        first = await s.scalar(
+            _select(_Product).where(_Product.available.is_(True)).order_by(_Product.title)
+        )
+    await dp.feed_update(bot, cb_update(CUSTOMER_ID, f"catalog:item:{first.id}", screen_id))
+    assert "одобрили" in screen_caption().lower(), screen_caption()
+    async with session_factory() as s:
+        from app.db.models import Order as _Order
+
+        cust = await s.get(User, CUSTOMER_ID)
+        co = await s.get(_Order, cust.current_order_id)
+        assert co is not None and co.article == first.article, "catalog pick did not create order"
+    print("client catalog -> picked item -> order created")
+
+    # 23) /ban by explicit user id (in admin DM) -> client banned
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, f"/ban {CUSTOMER_ID}"))
+    async with session_factory() as s:
+        cust = await s.get(User, CUSTOMER_ID)
+        assert cust.is_banned, "/ban by id did not ban"
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, f"/pardon {CUSTOMER_ID}"))
+    async with session_factory() as s:
+        cust = await s.get(User, CUSTOMER_ID)
+        assert not cust.is_banned, "/pardon by id did not unban"
+    print("/ban + /pardon by id (DM) -> works")
 
     await bot.session.close()
     print("\nALL FLOW ASSERTIONS PASSED ✅")

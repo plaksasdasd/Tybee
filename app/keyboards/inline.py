@@ -4,6 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app import texts
+from app.db.models import FULFILLMENT_STATUSES, Product
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -42,7 +43,21 @@ def back_to_profile() -> InlineKeyboardMarkup:
 def article_choice() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_HAS_ARTICLE, callback_data="order:has_article")
+    kb.button(text=texts.BTN_BROWSE_CATALOG, callback_data="order:catalog")
     kb.button(text=texts.BTN_NO_ARTICLE, callback_data="order:personal")
+    kb.button(text=texts.BTN_MENU, callback_data="menu:open")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def catalog_list(products: list[Product]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for product in products:
+        kb.button(
+            text=f"{product.title} — {product.price} ₽",
+            callback_data=f"catalog:item:{product.id}",
+        )
+    kb.button(text=texts.BTN_PERSONAL, callback_data="order:personal")
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
     kb.adjust(1)
     return kb.as_markup()
@@ -87,6 +102,73 @@ def in_dialog() -> InlineKeyboardMarkup:
 def review_pending() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
+    return kb.as_markup()
+
+
+def order_status(order_id: int, current: str) -> InlineKeyboardMarkup:
+    """Support control panel: one button per fulfillment status.
+
+    The current status is marked with a check; pressing a button moves the order
+    to that status and notifies the client.
+    """
+    kb = InlineKeyboardBuilder()
+    for status in FULFILLMENT_STATUSES:
+        label = texts.STATUS_LABELS.get(status.value, status.value)
+        prefix = "✅ " if status.value == current else ""
+        kb.button(text=f"{prefix}{label}", callback_data=f"adm:status:{order_id}:{status.value}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_panel() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_PRODUCTS, callback_data="adm:prod:list")
+    kb.button(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")
+    kb.button(text=texts.BTN_ADM_STATS, callback_data="adm:stats")
+    kb.button(text=texts.BTN_ADM_CLOSE, callback_data="adm:panel:close")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_products(products: list[Product]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for product in products:
+        mark = "🟢" if product.available else "🔴"
+        kb.button(
+            text=f"{mark} {product.article} · {product.title}",
+            callback_data=f"adm:prod:view:{product.id}",
+        )
+    kb.button(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")
+    kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_product_view(product: Product) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    toggle = texts.BTN_ADM_TOGGLE_OFF if product.available else texts.BTN_ADM_TOGGLE_ON
+    kb.button(text=toggle, callback_data=f"adm:prod:toggle:{product.id}")
+    kb.button(text=texts.BTN_ADM_DELETE, callback_data=f"adm:prod:del:{product.id}")
+    kb.button(text=texts.BTN_ADM_BACK_LIST, callback_data="adm:prod:list")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_add_cancel() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_CANCEL, callback_data="adm:panel:open")
+    return kb.as_markup()
+
+
+def admin_back() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
+    return kb.as_markup()
+
+
+def pay_fine(fine: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_PAY_FINE.format(fine=fine), callback_data="unban:pay")
     return kb.as_markup()
 
 

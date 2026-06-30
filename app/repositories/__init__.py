@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from aiogram.types import User as TgUser
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -28,6 +28,33 @@ async def get_or_create_user(session: AsyncSession, tg_user: TgUser) -> User:
     return user
 
 
+async def get_user(session: AsyncSession, user_id: int) -> User | None:
+    return await session.get(User, user_id)
+
+
+async def get_user_by_thread(session: AsyncSession, thread_id: int) -> User | None:
+    return await session.scalar(select(User).where(User.support_thread_id == thread_id))
+
+
+async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
+    return await session.scalar(
+        select(User).where(func.lower(User.username) == username.lstrip("@").lower())
+    )
+
+
+async def get_or_create_user_by_id(session: AsyncSession, user_id: int) -> User:
+    user = await session.get(User, user_id)
+    if user is None:
+        user = User(id=user_id, is_admin=user_id in get_settings().admin_ids)
+        session.add(user)
+        await session.flush()
+    return user
+
+
+async def set_banned(session: AsyncSession, user: User, banned: bool) -> None:
+    user.is_banned = banned
+
+
 async def set_state(session: AsyncSession, user: User, state: UserState) -> None:
     user.state = state.value
 
@@ -46,6 +73,60 @@ async def find_product_by_article(session: AsyncSession, article: str) -> Produc
     return await session.scalar(
         select(Product).where(Product.article == article, Product.available.is_(True))
     )
+
+
+async def list_products(session: AsyncSession) -> list[Product]:
+    result = await session.scalars(select(Product).order_by(Product.id.desc()))
+    return list(result)
+
+
+async def list_available_products(session: AsyncSession) -> list[Product]:
+    result = await session.scalars(
+        select(Product).where(Product.available.is_(True)).order_by(Product.title)
+    )
+    return list(result)
+
+
+async def get_product(session: AsyncSession, product_id: int) -> Product | None:
+    return await session.get(Product, product_id)
+
+
+async def get_product_by_article(session: AsyncSession, article: str) -> Product | None:
+    return await session.scalar(select(Product).where(Product.article == article))
+
+
+async def create_product(
+    session: AsyncSession, article: str, title: str, price: int
+) -> Product:
+    product = Product(article=article, title=title, price=price, available=True)
+    session.add(product)
+    await session.flush()
+    return product
+
+
+async def toggle_product(session: AsyncSession, product: Product) -> None:
+    product.available = not product.available
+
+
+async def delete_product(session: AsyncSession, product: Product) -> None:
+    await session.delete(product)
+
+
+async def count_rows(session: AsyncSession, model: type) -> int:
+    return await session.scalar(select(func.count()).select_from(model)) or 0
+
+
+async def count_banned_users(session: AsyncSession) -> int:
+    return await session.scalar(
+        select(func.count()).select_from(User).where(User.is_banned.is_(True))
+    ) or 0
+
+
+async def orders_by_status(session: AsyncSession) -> dict[str, int]:
+    rows = await session.execute(
+        select(Order.status, func.count()).group_by(Order.status)
+    )
+    return {status: count for status, count in rows.all()}
 
 
 # ---- Orders ----
