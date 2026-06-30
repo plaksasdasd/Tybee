@@ -119,6 +119,18 @@ def msg_update(user_id: int, text: str, reply_to: int | None = None) -> Update:
     return Update(update_id=_next_id(), message=m)
 
 
+def msg_no_reply(user_id: int, text: str) -> Update:
+    """A private message with no reply_to (so admin-reply relay won't catch it)."""
+    m = Message(
+        message_id=_next_id(),
+        date=datetime.now(timezone.utc),
+        chat=Chat(id=user_id, type="private"),
+        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
+        text=text,
+    )
+    return Update(update_id=_next_id(), message=m)
+
+
 def cb_update(user_id: int, data: str, screen_id: int) -> Update:
     screen = _fake_message(user_id, photo=True)
     object.__setattr__(screen, "message_id", screen_id)
@@ -355,6 +367,45 @@ async def main() -> None:
         cust = await s.get(User, CUSTOMER_ID)
         assert not cust.is_banned, "/pardon did not unban the client"
     print("/pardon -> client unbanned")
+
+    # 18) /admin -> panel with catalog/stats buttons
+    calls.clear()
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "/admin"))
+    panel = [d for d in find("SendMessage") if "adm:prod:add" in str(d.get("reply_markup", ""))]
+    assert panel, "/admin did not open the panel"
+    print("/admin -> panel opened")
+
+    # 19) start add-product flow -> enter a new product line -> product created
+    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:prod:add", screen_id))
+    async with session_factory() as s:
+        adm = await s.get(User, ADMIN_ID)
+        assert adm.state == "admin_add_product", adm.state
+    calls.clear()
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "246810 Тестовая кофта оверсайз 4200"))
+    async with session_factory() as s:
+        from sqlalchemy import select as _select
+
+        from app.db.models import Product as _Product
+
+        prod = await s.scalar(_select(_Product).where(_Product.article == "246810"))
+        assert prod is not None and prod.price == 4200, "product was not created"
+        assert prod.title == "Тестовая кофта оверсайз"
+    print("/admin add product -> product created (246810)")
+
+    # 20) stats view renders
+    calls.clear()
+    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:stats", screen_id))
+    assert any("Статистика" in d.get("text", "") for d in find("EditMessageText")), "no stats"
+    print("/admin stats -> rendered")
+
+    # 21) toggle the product off -> becomes unavailable
+    await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:prod:toggle:{prod.id}", screen_id))
+    async with session_factory() as s:
+        from app.db.models import Product as _Product
+
+        refreshed = await s.get(_Product, prod.id)
+        assert refreshed is not None and not refreshed.available, "toggle did not disable product"
+    print("/admin toggle -> product disabled")
 
     await bot.session.close()
     print("\nALL FLOW ASSERTIONS PASSED ✅")

@@ -41,23 +41,28 @@ async def _set_commands(bot: Bot) -> None:
     await bot.set_my_commands(
         [BotCommand(command="start", description="Открыть меню Тайби")]
     )
-    # Expose support commands only to admins / the support chat.
     settings = get_settings()
-    admin_commands = [
+    # Support commands belong in the support chat (their handlers are scoped there).
+    support_commands = [
         BotCommand(command="order", description="Создать заказ: /order название описание сумма"),
         BotCommand(command="ban", description="Заблокировать клиента"),
         BotCommand(command="pardon", description="Разблокировать клиента"),
     ]
-    scope_chats = list(settings.admin_ids)
+    # The admin panel is a private-chat command for administrators.
+    admin_private_commands = [
+        BotCommand(command="start", description="Открыть меню Тайби"),
+        BotCommand(command="admin", description="Админ-панель: каталог и статистика"),
+    ]
+    scopes: list[tuple[int, list[BotCommand]]] = [
+        (admin_id, admin_private_commands) for admin_id in settings.admin_ids
+    ]
     if settings.support_chat_id is not None:
-        scope_chats.append(settings.support_chat_id)
-    for chat_id in scope_chats:
+        scopes.append((settings.support_chat_id, support_commands))
+    for chat_id, commands in scopes:
         try:
-            await bot.set_my_commands(
-                admin_commands, scope=BotCommandScopeChat(chat_id=chat_id)
-            )
+            await bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=chat_id))
         except TelegramBadRequest as exc:
-            logger.info("Could not set admin commands for %s: %s", chat_id, exc)
+            logger.info("Could not set commands for %s: %s", chat_id, exc)
 
 
 async def run() -> None:

@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app import texts
-from app.db.models import FULFILLMENT_STATUSES
+from app.db.models import FULFILLMENT_STATUSES, Product
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -103,6 +103,52 @@ def order_status(order_id: int, current: str) -> InlineKeyboardMarkup:
         prefix = "✅ " if status.value == current else ""
         kb.button(text=f"{prefix}{label}", callback_data=f"adm:status:{order_id}:{status.value}")
     kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_panel() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_PRODUCTS, callback_data="adm:prod:list")
+    kb.button(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")
+    kb.button(text=texts.BTN_ADM_STATS, callback_data="adm:stats")
+    kb.button(text=texts.BTN_ADM_CLOSE, callback_data="adm:panel:close")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_products(products: list[Product]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for product in products:
+        mark = "🟢" if product.available else "🔴"
+        kb.button(
+            text=f"{mark} {product.article} · {product.title}",
+            callback_data=f"adm:prod:view:{product.id}",
+        )
+    kb.button(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")
+    kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_product_view(product: Product) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    toggle = texts.BTN_ADM_TOGGLE_OFF if product.available else texts.BTN_ADM_TOGGLE_ON
+    kb.button(text=toggle, callback_data=f"adm:prod:toggle:{product.id}")
+    kb.button(text=texts.BTN_ADM_DELETE, callback_data=f"adm:prod:del:{product.id}")
+    kb.button(text=texts.BTN_ADM_BACK_LIST, callback_data="adm:prod:list")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_add_cancel() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_CANCEL, callback_data="adm:panel:open")
+    return kb.as_markup()
+
+
+def admin_back() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
     return kb.as_markup()
 
 

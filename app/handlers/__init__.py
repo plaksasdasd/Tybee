@@ -4,6 +4,7 @@ from aiogram import Router
 
 from app.handlers import (
     admin,
+    admin_panel,
     article,
     ban,
     dialog,
@@ -21,6 +22,7 @@ def build_router() -> Router:
     # Order matters: admin (incl. support-chat replies) and specific callback
     # routers must precede the catch-all text router.
     root.include_router(admin.router)
+    root.include_router(admin_panel.router)
     root.include_router(ban.router)
     root.include_router(start.router)
     root.include_router(profile.router)

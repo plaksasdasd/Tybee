@@ -241,6 +241,61 @@ UNBANNED = (
     "Спасибо! Доступ к сервису восстановлен. Нажмите /start, чтобы вернуться в меню."
 )
 
+# ---- Admin panel (/admin) ----
+ADMIN_PANEL = (
+    "🛠 <b>Админ-панель Тайби</b>\n\n"
+    "Управление каталогом и сервисом. Выберите раздел ниже."
+)
+
+ADMIN_PRODUCTS_HEADER = "📦 <b>Каталог</b>\n\nТоваров: <b>{count}</b>"
+ADMIN_PRODUCTS_EMPTY = "📦 <b>Каталог пуст</b>\n\nДобавьте первый товар кнопкой ниже."
+
+ADMIN_PRODUCT_VIEW = (
+    "📦 <b>Товар #{id}</b>\n\n"
+    "Артикул: <code>{article}</code>\n"
+    "Название: {title}\n"
+    "Цена: <b>{price} ₽</b>\n"
+    "Доступен: {available}"
+)
+
+ADMIN_ADD_PROMPT = (
+    "➕ <b>Новый товар</b>\n\n"
+    "Отправьте одной строкой: <code>артикул название цена</code>\n"
+    "• артикул — 6 цифр\n"
+    "• цена — число (в рублях)\n\n"
+    "Например: <code>123456 Куртка зимняя тёплая 6900</code>"
+)
+ADMIN_ADD_BAD_FORMAT = (
+    "⚠️ Неверный формат. Нужно: <code>артикул название цена</code>, "
+    "где артикул — 6 цифр, цена — число.\n\nПопробуйте ещё раз или нажмите «Отмена»."
+)
+ADMIN_ADD_DUPLICATE = "⚠️ Товар с артикулом <code>{article}</code> уже существует."
+ADMIN_ADD_DONE = "✅ Товар добавлен: <b>{title}</b> ({article}) — {price} ₽"
+ADMIN_PRODUCT_DELETED = "🗑 Товар удалён."
+
+ADMIN_STATS = (
+    "📊 <b>Статистика</b>\n\n"
+    "👥 Пользователей: <b>{users}</b> (забанено: {banned})\n"
+    "📦 Товаров: <b>{products}</b>\n"
+    "🧾 Заказов: <b>{orders}</b>\n"
+    "{by_status}"
+)
+
+ADMIN_ONLY = "Команда доступна только администраторам."
+
+# ---- Admin panel buttons ----
+BTN_ADM_ADD_PRODUCT = "➕ Добавить товар"
+BTN_ADM_PRODUCTS = "📦 Товары"
+BTN_ADM_STATS = "📊 Статистика"
+BTN_ADM_CLOSE = "✖️ Закрыть"
+BTN_ADM_BACK = "⬅️ Назад"
+BTN_ADM_BACK_LIST = "⬅️ К списку"
+BTN_ADM_CANCEL = "✖️ Отмена"
+BTN_ADM_TOGGLE_ON = "🟢 Включить в продажу"
+BTN_ADM_TOGGLE_OFF = "🔴 Снять с продажи"
+BTN_ADM_DELETE = "🗑 Удалить"
+
+
 # ---- Status labels (RU) ----
 STATUS_LABELS = {
     "new": "новый",
