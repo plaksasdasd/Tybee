@@ -200,6 +200,42 @@ ADMIN_NEW_PERSONAL = (
 ADMIN_DIALOG_MSG = "👤 <b>{client}</b> (заказ #{order_id}):"
 ADMIN_PAYMENT_DECISION = "Решение по заказу #{order_id}: <b>{decision}</b>"
 
+# ---- Avito ----
+# Header used when an Avito client's message is relayed into the support thread.
+ADMIN_AVITO_MSG = "🟢 <b>Avito · {client}</b> (заказ #{order_id}):"
+AVITO_ATTACHMENT = "📎 [вложение: {kind}]"
+# Posted into the thread together with confirm/reject buttons after an invoice
+# is issued to an Avito client (they cannot press "Я оплатил" — support confirms
+# manually when the client reports the payment in chat).
+ADMIN_PAYMENT_CONTROL = (
+    "🧾 Счёт по заказу <b>#{order_id}</b> отправлен клиенту в Avito.\n"
+    "Когда клиент сообщит об оплате — подтвердите или отклоните платёж:"
+)
+# Prefix for messages support sends to an Avito client (plain text — Avito
+# does not render HTML).
+AVITO_REPLY_PREFIX = "Команда Тайби:\n"
+AVITO_INVOICE = (
+    "🧾 ВАМ ВЫСТАВЛЕН СЧЁТ\n\n"
+    "🛍 {title}\n"
+    "{description}"
+    "💴 К оплате: {price} ₽\n\n"
+    "{requisites}\n\n"
+    "После оплаты напишите нам здесь — мы проверим поступление средств ✅"
+)
+AVITO_APPROVED = (
+    "✅ Оплата по заказу #{order_id} подтверждена.\n"
+    "Команда уже занимается вашим заказом — пишите здесь, если есть вопросы."
+)
+AVITO_REJECTED = (
+    "❎ По заказу #{order_id} мы не увидели поступление средств.\n"
+    "Если вы оплатили — напишите здесь, приложив чек, и мы разберёмся."
+)
+AVITO_STATUS_NOTIFY = (
+    "📦 Обновление статуса по вашему заказу\n\n"
+    "Заказ #{order_id}\n"
+    "Новый статус: {status}"
+)
+
 # ---- Support thread / commands ----
 THREAD_INTRO = (
     "🧵 <b>Ветка клиента</b>\n\n"

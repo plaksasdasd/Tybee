@@ -82,25 +82,31 @@ async def _decide(
 
     if approve:
         await repo.set_order_status(session, order, OrderStatus.APPROVED)
-        await show_screen(
-            bot,
-            session,
-            customer,
-            Banner.APPROVED,
-            texts.APPROVED.format(order_id=order.id),
-            inline.open_dialog(order.id),
-        )
+        if customer.source == "avito":
+            await notify.send_avito_payment_decision(customer, order, approved=True)
+        else:
+            await show_screen(
+                bot,
+                session,
+                customer,
+                Banner.APPROVED,
+                texts.APPROVED.format(order_id=order.id),
+                inline.open_dialog(order.id),
+            )
         decision = "оплата подтверждена ✅"
     else:
         await repo.set_order_status(session, order, OrderStatus.REJECTED)
-        await show_screen(
-            bot,
-            session,
-            customer,
-            Banner.REJECTED,
-            texts.REJECTED_PAYMENT.format(order_id=order.id),
-            inline.back_to_menu(),
-        )
+        if customer.source == "avito":
+            await notify.send_avito_payment_decision(customer, order, approved=False)
+        else:
+            await show_screen(
+                bot,
+                session,
+                customer,
+                Banner.REJECTED,
+                texts.REJECTED_PAYMENT.format(order_id=order.id),
+                inline.back_to_menu(),
+            )
         decision = "заявка отклонена ❎"
 
     if call.message is not None:
@@ -260,7 +266,7 @@ async def thread_message(message: Message, bot: Bot, session: AsyncSession, user
     target = await _resolve_target_user(session, message)
     if target is None:
         return
-    await relay_admin_to_user(bot, target.id, message)
+    await relay_admin_to_user(bot, target, message)
 
 
 @router.message(F.reply_to_message, F.chat.id == SUPPORT_TARGET)
@@ -279,4 +285,7 @@ async def admin_reply(
     user_id = await repo.resolve_relay(session, message.reply_to_message.message_id)
     if user_id is None:
         return
-    await relay_admin_to_user(bot, user_id, message)
+    target = await repo.get_user(session, user_id)
+    if target is None:
+        return
+    await relay_admin_to_user(bot, target, message)

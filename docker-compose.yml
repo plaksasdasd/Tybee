@@ -24,6 +24,9 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+    ports:
+      # Avito webhook receiver (only needed when AVITO_* is configured).
+      - "${AVITO_WEBHOOK_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy

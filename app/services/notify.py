@@ -4,27 +4,45 @@ When ``SUPPORT_CHAT_ID`` points at a forum supergroup, every client gets one
 shared support topic. All orders and messages for that client are routed there.
 When the support chat is a plain chat (or a single admin DM), messages use the
 reply-based relay.
+
+Clients coming from Avito (``User.source == "avito"``) have no Telegram chat —
+everything addressed to them is delivered through the Avito Messenger API.
 """
 from __future__ import annotations
 
+import html as html_module
 import logging
+import re
 from collections.abc import Awaitable, Callable
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
-from aiogram.types import Message
+from aiogram.types import FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repositories as repo
 from app import texts
+from app.assets import Banner
 from app.config import get_settings
 from app.db.models import Order, User
 from app.keyboards import inline
+from app.services.avito import get_avito
 
 logger = logging.getLogger(__name__)
 
 # Telegram limits forum topic names to 128 characters.
 _THREAD_NAME_MAX = 128
+
+_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+
+def _plain(text: str) -> str:
+    """Convert Telegram HTML to plain text (Avito renders no formatting)."""
+    return html_module.unescape(_TAG_RE.sub("", text))
+
+
+def requisites_plain() -> str:
+    return _plain(requisites())
 
 
 def _client(user: User) -> str:
@@ -247,15 +265,99 @@ async def post_order_panel(bot: Bot, session: AsyncSession, user: User, order: O
     )
 
 
+async def _send_avito(user: User, text: str) -> bool:
+    """Deliver a plain-text message to an Avito client. True when sent."""
+    if not user.avito_chat_id:
+        return False
+    try:
+        await get_avito().send_message(user.avito_chat_id, text)
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Could not deliver an Avito message to chat %s: %s", user.avito_chat_id, exc
+        )
+        return False
+
+
+def _is_bad_file_id(exc: TelegramAPIError) -> bool:
+    return "file identifier" in str(exc).lower()
+
+
 async def notify_order_status(
     bot: Bot, user_id: int, order: Order, session: AsyncSession | None = None
 ) -> None:
-    """Notify the client that their order status changed."""
-    await bot.send_message(
-        user_id,
-        texts.ORDER_STATUS_NOTIFY.format(order_id=order.id, status=status_label(order.status)),
-        parse_mode="HTML",
+    """Notify the client that their order status changed.
+
+    Telegram clients get the status banner (via its cached file_id when
+    possible — pass ``session`` to enable that cache); Avito clients get a
+    plain text message.
+    """
+    user = await repo.get_user(session, user_id) if session is not None else None
+    if user is not None and user.source == "avito":
+        await _send_avito(
+            user,
+            texts.AVITO_STATUS_NOTIFY.format(
+                order_id=order.id, status=status_label(order.status)
+            ),
+        )
+        return
+
+    banner = Banner.STATUS
+    caption = texts.ORDER_STATUS_NOTIFY.format(
+        order_id=order.id, status=status_label(order.status)
     )
+    cached_id = (
+        await repo.get_cached_file_id(session, banner.value) if session is not None else None
+    )
+    try:
+        sent = await bot.send_photo(
+            user_id,
+            photo=cached_id or FSInputFile(banner.path),
+            caption=caption,
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as exc:
+        if cached_id is None or not _is_bad_file_id(exc):
+            raise
+        await repo.delete_cached_file_id(session, banner.value)
+        sent = await bot.send_photo(
+            user_id,
+            photo=FSInputFile(banner.path),
+            caption=caption,
+            parse_mode="HTML",
+        )
+    if session is not None and sent.photo:
+        await repo.set_cached_file_id(session, banner.value, sent.photo[-1].file_id)
+
+
+async def send_avito_invoice(bot: Bot, session: AsyncSession, user: User, order: Order) -> None:
+    """Send an invoice to an Avito client + post the confirm/reject panel.
+
+    Avito clients cannot press "Я оплатил", so support confirms the payment
+    manually via the buttons posted into the client's thread.
+    """
+    description = f"{order.description}\n" if order.description else ""
+    await _send_avito(
+        user,
+        texts.AVITO_INVOICE.format(
+            title=order.title or "Заказ",
+            description=description,
+            price=order.price or 0,
+            requisites=requisites_plain(),
+        ),
+    )
+    await send_to_client_thread(
+        bot,
+        session,
+        texts.ADMIN_PAYMENT_CONTROL.format(order_id=order.id),
+        user,
+        reply_markup=inline.admin_payment(order.id),
+    )
+
+
+async def send_avito_payment_decision(user: User, order: Order, *, approved: bool) -> None:
+    text = texts.AVITO_APPROVED if approved else texts.AVITO_REJECTED
+    await _send_avito(user, text.format(order_id=order.id))
 
 
 async def relay_user_to_support(
@@ -302,10 +404,19 @@ async def relay_user_to_support(
         return False
 
 
-async def relay_admin_to_user(bot: Bot, user_id: int, message: Message) -> None:
+async def relay_admin_to_user(bot: Bot, user: User, message: Message) -> None:
+    """Deliver a support reply to the client (Telegram chat or Avito chat)."""
+    if user.source == "avito":
+        text = message.html_text or message.caption or ""
+        if text:
+            text = f"{texts.AVITO_REPLY_PREFIX}{_plain(text)}"
+        else:
+            text = texts.AVITO_ATTACHMENT.format(kind="вложение")
+        await _send_avito(user, text)
+        return
     if message.text:
         await bot.send_message(
-            user_id, f"{texts.DIALOG_REPLY_PREFIX}{message.html_text}", parse_mode="HTML"
+            user.id, f"{texts.DIALOG_REPLY_PREFIX}{message.html_text}", parse_mode="HTML"
         )
     else:
-        await bot.copy_message(user_id, message.chat.id, message.message_id)
+        await bot.copy_message(user.id, message.chat.id, message.message_id)

@@ -20,11 +20,11 @@ async def _render_boxes(bot: Bot, session: AsyncSession, user: User) -> None:
     boxes = await repo.list_available_boxes(session)
     if boxes:
         await show_screen(
-            bot, session, user, None, texts.MYSTERY_LIST, inline.mystery_boxes(boxes)
+            bot, session, user, Banner.MYSTERY, texts.MYSTERY_LIST, inline.mystery_boxes(boxes)
         )
     else:
         await show_screen(
-            bot, session, user, None, texts.MYSTERY_EMPTY, inline.mystery_empty()
+            bot, session, user, Banner.MYSTERY, texts.MYSTERY_EMPTY, inline.mystery_empty()
         )
 
 

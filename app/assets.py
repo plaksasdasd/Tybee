@@ -7,10 +7,14 @@ ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets" / "banners"
 
 
 class Banner(str, Enum):
+    WELCOME = "welcome"
     PROFILE = "profile"
     ORDER_CHOICE = "order_choice"
     ARTICLE = "article"
     SEARCH = "search"
+    MYSTERY = "mystery"
+    SUPPORT = "support"
+    STATUS = "status"
     PAYMENT = "payment"
     ALMOST = "almost"
     APPROVED = "approved"

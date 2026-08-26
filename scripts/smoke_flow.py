@@ -225,14 +225,11 @@ async def main() -> None:
                 return data.get("text", "")
         raise AssertionError("no screen was rendered")
 
-    # 1) /start -> first screen is SENT (no existing message yet); it is a
-    #    plain text message — the main menu has no banner.
+    # 1) /start -> first screen is SENT (no existing message yet)
     await dp.feed_update(bot, msg_update(CUSTOMER_ID, "/start"))
-    welcome = [
-        m for m in find("SendMessage") if int(m["chat_id"]) == CUSTOMER_ID
-    ]
-    assert welcome and "удобный сервис" in welcome[-1].get("text", "").lower(), (
-        "Expected the welcome text message"
+    welcome = [d for d in find("SendPhoto") if int(d["chat_id"]) == CUSTOMER_ID]
+    assert welcome and "удобный сервис" in welcome[-1].get("caption", "").lower(), (
+        "Expected the initial welcome photo"
     )
     # the bot stored screen_message_id from our fake SendPhoto return
     from app.db.base import session_factory
@@ -350,16 +347,16 @@ async def main() -> None:
     assert panels, "no order status panel posted after approval"
     print("approval -> status control panel posted")
 
-    # 14) support changes the order status -> client gets a text notification
+    # 14) support changes the order status -> client gets a photo notification
     calls.clear()
     await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:status:{new_order_id}:bought", screen_id))
     notifs = [
-        d for d in find("SendMessage")
-        if int(d["chat_id"]) == CUSTOMER_ID and "Выкуплен" in d.get("text", "")
+        d for d in find("SendPhoto")
+        if int(d["chat_id"]) == CUSTOMER_ID and "Выкуплен" in d.get("caption", "")
     ]
-    assert notifs, "client did not get the status notification"
+    assert notifs, "client did not get the status photo notification"
     assert find("EditMessageText"), "status panel was not refreshed"
-    print("status change -> client notified (Выкуплен)")
+    print("status change -> client notified (Выкуплен) with banner")
 
     # 15) /ban -> client blocked and shown the fine screen on next action
     await dp.feed_update(bot, msg_update(ADMIN_ID, "/ban", reply_to=rid))
