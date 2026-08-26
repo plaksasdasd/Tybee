@@ -360,6 +360,14 @@ async def send_avito_payment_decision(user: User, order: Order, *, approved: boo
     await _send_avito(user, text.format(order_id=order.id))
 
 
+async def notify_dialog_closed(bot: Bot, session: AsyncSession, user: User) -> None:
+    """Tell the support thread that the client ended the dialog."""
+    text = texts.ADMIN_DIALOG_CLOSED.format(
+        client=_client(user), order_id=user.current_order_id or 0
+    )
+    await send_to_client_thread(bot, session, text, user)
+
+
 async def relay_user_to_support(
     bot: Bot, session: AsyncSession, user: User, message: Message
 ) -> bool:

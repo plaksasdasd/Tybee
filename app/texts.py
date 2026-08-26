@@ -30,7 +30,7 @@ OFFER = (
     "3️⃣ Оплата производится по реквизитам, выданным ботом.\n"
     "4️⃣ Сроки доставки зависят от наличия товара и логистики.\n"
     "5️⃣ Возврат и обмен регулируются законодательством РФ.\n\n"
-    "📄 Полный текст оферты: <a href=\"https://tybee.ru/publicoffer\">tybee.ru/publicoffer</a>\n\n"
+    "📄 Полный текст оферты: <a href=\"http://tybee.ru/doc\">tybee.ru/doc</a>\n\n"
     "По всем вопросам — раздел «Поддержка» 🛟"
 )
 
@@ -198,6 +198,7 @@ ADMIN_NEW_PERSONAL = (
 )
 
 ADMIN_DIALOG_MSG = "👤 <b>{client}</b> (заказ #{order_id}):"
+ADMIN_DIALOG_CLOSED = "🔒 <b>{client}</b> (заказ #{order_id}) завершил(а) диалог."
 ADMIN_PAYMENT_DECISION = "Решение по заказу #{order_id}: <b>{decision}</b>"
 
 # ---- Avito ----
@@ -457,4 +458,4 @@ BTN_CONFIRM_PAYMENT = "✅ Подтвердить оплату"
 BTN_REJECT_PAYMENT = "❎ Отклонить"
 BTN_PAY_FINE = "⭐ Оплатить штраф ({fine})"
 BTN_TO_PAYMENT = "💸 Перейти к оплате"
-BTN_OFFER_URL = "https://tybee.ru/publicoffer"
+BTN_OFFER_URL = "http://tybee.ru/doc"
