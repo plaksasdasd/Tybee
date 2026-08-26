@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-taibi}
+      POSTGRES_USER: ${POSTGRES_USER:-taibi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taibi}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "psql -U ${POSTGRES_USER:-taibi} -d ${POSTGRES_DB:-taibi} -c 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
