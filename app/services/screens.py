@@ -21,13 +21,7 @@ async def show_menu(
     await repo.set_state(session, user, UserState.MENU)
     user.current_order_id = None
     await show_screen(
-        bot,
-        session,
-        user,
-        Banner.WELCOME,
-        texts.WELCOME,
-        inline.main_menu(),
-        force_new=force_new,
+        bot, session, user, None, texts.WELCOME, inline.main_menu(), force_new=force_new
     )
 
 
