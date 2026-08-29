@@ -1,9 +1,11 @@
 """Single-screen navigation engine.
 
 The bot keeps exactly one "screen" message per user. Navigating the menu
-*edits* that message (photo + caption + keyboard, or plain text for screens
-without a banner) instead of deleting it and sending a new one, so the chat
-history stays clean.
+*edits* that message (photo + caption + keyboard) instead of deleting it and
+sending a new one, so the chat history stays clean.
+
+Every screen carries a banner, so the message is always a photo and can always
+be edited in place via ``edit_message_media``.
 """
 from __future__ import annotations
 
@@ -38,8 +40,9 @@ async def _cache_from(session: AsyncSession, banner: Banner, message: Message | 
 async def _drop_screen(bot: Bot, session: AsyncSession, user: User) -> None:
     """Best-effort removal of the stale screen message before replacing it.
 
-    Needed when the next screen is of a different kind (text <-> photo): those
-    cannot be converted by an edit, so the old message must go.
+    Needed only for uneditable leftovers — e.g. a plain-text screen saved by an
+    older bot version: such a message cannot be converted to a photo by an
+    edit, so it must go.
     """
     if user.screen_message_id is None:
         return
@@ -48,19 +51,6 @@ async def _drop_screen(bot: Bot, session: AsyncSession, user: User) -> None:
     except TelegramBadRequest:
         pass
     await repo.set_screen(session, user, None)
-
-
-async def _send_fresh_text(
-    bot: Bot,
-    session: AsyncSession,
-    user: User,
-    caption: str,
-    keyboard: InlineKeyboardMarkup | None,
-) -> None:
-    sent = await bot.send_message(
-        chat_id=user.id, text=caption, parse_mode="HTML", reply_markup=keyboard
-    )
-    await repo.set_screen(session, user, sent.message_id)
 
 
 async def _send_fresh(
@@ -117,37 +107,18 @@ async def show_screen(
 ) -> None:
     """Render a screen for the user by editing the existing message when possible.
 
-    ``banner=None`` renders a text-only screen (no image). Switching between a
-    text and a photo screen deletes the old message and posts a new one —
-    Telegram cannot convert one into the other in place.
-
     With ``force_new`` the screen is posted as a brand-new message at the bottom
     of the chat instead of being edited in place. This is used right after the
     user sends a text message (e.g. /start or an article code): editing a message
     that now sits above the user's text would look unresponsive.
 
     Falls back gracefully: if a cached file_id is stale/invalid it is dropped and
-    the banner is re-uploaded from disk; if the message can't be edited at all a
-    new one is sent (and the uneditable one removed).
+    the banner is re-uploaded from disk; if the message can't be edited at all
+    (e.g. a legacy text screen saved by an older bot version) a new one is sent
+    and the uneditable one removed.
     """
     if banner is None:
-        if not force_new and user.screen_message_id is not None:
-            try:
-                await bot.edit_message_text(
-                    text=caption,
-                    chat_id=user.id,
-                    message_id=user.screen_message_id,
-                    parse_mode="HTML",
-                    reply_markup=keyboard,
-                )
-                return
-            except TelegramBadRequest as exc:
-                if "message is not modified" in str(exc).lower():
-                    return
-                logger.info("Could not edit text screen for %s, resending: %s", user.id, exc)
-        await _drop_screen(bot, session, user)
-        await _send_fresh_text(bot, session, user, caption, keyboard)
-        return
+        banner = Banner.WELCOME
 
     if force_new:
         await _send_fresh(bot, session, user, banner, caption, keyboard, photo=photo)

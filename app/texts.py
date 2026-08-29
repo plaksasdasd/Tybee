@@ -198,7 +198,44 @@ ADMIN_NEW_PERSONAL = (
 )
 
 ADMIN_DIALOG_MSG = "👤 <b>{client}</b> (заказ #{order_id}):"
+ADMIN_DIALOG_CLOSED = "🔒 <b>{client}</b> (заказ #{order_id}) завершил(а) диалог."
 ADMIN_PAYMENT_DECISION = "Решение по заказу #{order_id}: <b>{decision}</b>"
+
+# ---- Avito ----
+# Header used when an Avito client's message is relayed into the support thread.
+ADMIN_AVITO_MSG = "🟢 <b>Avito · {client}</b> (заказ #{order_id}):"
+AVITO_ATTACHMENT = "📎 [вложение: {kind}]"
+# Posted into the thread together with confirm/reject buttons after an invoice
+# is issued to an Avito client (they cannot press "Я оплатил" — support confirms
+# manually when the client reports the payment in chat).
+ADMIN_PAYMENT_CONTROL = (
+    "🧾 Счёт по заказу <b>#{order_id}</b> отправлен клиенту в Avito.\n"
+    "Когда клиент сообщит об оплате — подтвердите или отклоните платёж:"
+)
+# Prefix for messages support sends to an Avito client (plain text — Avito
+# does not render HTML).
+AVITO_REPLY_PREFIX = "Команда Тайби:\n"
+AVITO_INVOICE = (
+    "🧾 ВАМ ВЫСТАВЛЕН СЧЁТ\n\n"
+    "🛍 {title}\n"
+    "{description}"
+    "💴 К оплате: {price} ₽\n\n"
+    "{requisites}\n\n"
+    "После оплаты напишите нам здесь — мы проверим поступление средств ✅"
+)
+AVITO_APPROVED = (
+    "✅ Оплата по заказу #{order_id} подтверждена.\n"
+    "Команда уже занимается вашим заказом — пишите здесь, если есть вопросы."
+)
+AVITO_REJECTED = (
+    "❎ По заказу #{order_id} мы не увидели поступление средств.\n"
+    "Если вы оплатили — напишите здесь, приложив чек, и мы разберёмся."
+)
+AVITO_STATUS_NOTIFY = (
+    "📦 Обновление статуса по вашему заказу\n\n"
+    "Заказ #{order_id}\n"
+    "Новый статус: {status}"
+)
 
 # ---- Support thread / commands ----
 THREAD_INTRO = (
@@ -244,10 +281,12 @@ ORDER_STATUS_NOTIFY = (
 
 # /order usage help (shown when arguments are malformed).
 ORDER_USAGE = (
-    "Использование: <code>/order [название] [описание] [сумма]</code>\n\n"
-    "Например: <code>/order Кроссовки Asics_Gel-Kayano_30 14900</code>\n"
-    "Последний аргумент — сумма в рублях (число), первый — название, "
-    "остальное — описание."
+    "Использование: <code>/order название сумма</code>\n\n"
+    "Название поддерживает пробелы:\n"
+    "• <code>/order Кроссовки Nike Air Max 15000</code>\n"
+    "• <code>/order \"Кроссовки Nike\" Очень удобные 15000</code> — кавычки для названия + описание\n"
+    "• <code>/order Кроссовки Nike | Очень удобные, размер 42 | 15000</code> — через <code>|</code>\n\n"
+    "Последний аргумент — сумма в рублях (число)."
 )
 
 ORDER_NEED_THREAD = (
@@ -355,6 +394,35 @@ ADMIN_ADD_BOX_BAD_FORMAT = (
 ADMIN_ADD_BOX_DONE = "✅ Бокс добавлен: <b>{title}</b> — {price} ₽"
 ADMIN_BOX_DELETED = "🗑 Бокс удалён."
 
+ADMIN_IMPORT_PROMPT = (
+    "📥 <b>Импорт артикулов из Excel</b>\n\n"
+    "Отправьте <b>.xlsx</b> файл с таблицей артикулов.\n\n"
+    "Формат (первая строка — заголовки, можно без):\n"
+    "<code>Артикул | Название | Цена | Описание | Доступен</code>\n"
+    "• <b>Артикул</b> — 6 цифр (обязательно, уникальный)\n"
+    "• <b>Название</b> — текст (обязательно)\n"
+    "• <b>Цена</b> — число в ₽ (обязательно)\n"
+    "• <b>Описание</b> — текст (необязательно)\n"
+    "• <b>Доступен</b> — да/нет, 1/0, true/false (по умолчанию — да)\n\n"
+    "Пример строки: <code>482915 Куртка зимняя 6900 Тёплый пух, S–XL</code>\n\n"
+    "До 500 строк за раз. Фото к артикулам добавляется отдельно через карточку товара."
+)
+
+ADMIN_IMPORT_BAD_FILE = (
+    "⚠️ Не удалось прочитать файл. Убедитесь, что это <b>.xlsx</b> "
+    "и таблица в формате: <code>артикул название цена [описание] [доступен]</code>."
+)
+
+ADMIN_IMPORT_RESULT = (
+    "📥 <b>Импорт завершён</b>\n\n"
+    "✅ Добавлено: <b>{added}</b>\n"
+    "⏭ Пропущено дублей: <b>{skipped}</b>\n"
+    "⚠️ Ошибок в строках: <b>{errors}</b>\n"
+    "{error_details}"
+)
+
+ADMIN_IMPORT_ERROR_DETAIL = "• Строка {row}: {reason}\n"
+
 ADMIN_STATS = (
     "📊 <b>Статистика</b>\n\n"
     "👥 Пользователей: <b>{users}</b> (забанено: {banned})\n"
@@ -368,6 +436,7 @@ ADMIN_ONLY = "Команда доступна только администра�
 
 # ---- Admin panel buttons ----
 BTN_ADM_ADD_PRODUCT = "➕ Добавить артикул"
+BTN_ADM_IMPORT = "📥 Импорт из Excel"
 BTN_ADM_PRODUCTS = "📦 Артикулы"
 BTN_ADM_BOXES = "🎁 Mystery Box"
 BTN_ADM_ADD_BOX = "➕ Добавить бокс"
@@ -421,4 +490,4 @@ BTN_CONFIRM_PAYMENT = "✅ Подтвердить оплату"
 BTN_REJECT_PAYMENT = "❎ Отклонить"
 BTN_PAY_FINE = "⭐ Оплатить штраф ({fine})"
 BTN_TO_PAYMENT = "💸 Перейти к оплате"
-BTN_OFFER_URL = "https://tybee.ru/publicoffer"
+BTN_OFFER_URL = "http://tybee.ru/doc"

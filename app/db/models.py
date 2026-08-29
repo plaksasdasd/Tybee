@@ -48,6 +48,8 @@ FULFILLMENT_STATUSES: tuple[OrderStatus, ...] = (
 class User(Base):
     __tablename__ = "users"
 
+    # Telegram clients use their Telegram id. Avito clients use a synthetic id
+    # (AVITO_ID_BASE + avito user id) so the two id spaces never collide.
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     username: Mapped[str | None] = mapped_column(String(64))
     full_name: Mapped[str] = mapped_column(String(256), default="")
@@ -59,6 +61,11 @@ class User(Base):
     current_order_id: Mapped[int | None] = mapped_column(BigInteger)
     # Shared forum topic id for all support messages and orders of this client.
     support_thread_id: Mapped[int | None] = mapped_column(BigInteger)
+    # "telegram" (default) or "avito". Avito clients have no Telegram chat —
+    # outgoing messages go through the Avito Messenger API instead.
+    source: Mapped[str] = mapped_column(String(16), default="telegram")
+    avito_user_id: Mapped[int | None] = mapped_column(BigInteger)
+    avito_chat_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     orders: Mapped[list["Order"]] = relationship(back_populates="user")

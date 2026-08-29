@@ -47,7 +47,7 @@ async def _set_commands(bot: Bot) -> None:
     settings = get_settings()
     # Support commands belong in the support chat (their handlers are scoped there).
     support_commands = [
-        BotCommand(command="order", description="Создать заказ: /order название описание сумма"),
+        BotCommand(command="order", description='Создать заказ: /order "Название" [описание] сумма'),
         BotCommand(command="ban", description="Заблокировать клиента"),
         BotCommand(command="pardon", description="Разблокировать клиента"),
     ]
@@ -137,7 +137,24 @@ async def run() -> None:
     me = await bot.get_me()
     logger.info("Starting Тайби bot as @%s", me.username)
     await _check_support_chat(bot, me.id)
+
+    from app.avito_webhook import start_avito_webhook
+    from app.config import get_settings
+    from app.services.avito import close_avito, get_avito
+
+    settings = get_settings()
+    if get_avito().enabled:
+        logger.info("Avito integration enabled")
+    elif settings.avito_enabled:
+        logger.warning(
+            "AVITO_ENABLED=true, but AVITO_CLIENT_ID/AVITO_CLIENT_SECRET are not "
+            "set — the Avito integration stays OFF."
+        )
+    webhook_runner = await start_avito_webhook(bot)
     try:
         await dp.start_polling(bot)
     finally:
+        if webhook_runner is not None:
+            await webhook_runner.cleanup()
+        await close_avito()
         await bot.session.close()

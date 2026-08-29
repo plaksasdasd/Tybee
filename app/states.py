@@ -16,5 +16,7 @@ class UserState(str, Enum):
     DIALOG = "dialog"
     # Admin is entering a new catalog article via the /admin panel.
     ADMIN_ADD_PRODUCT = "admin_add_product"
+    # Admin is importing catalog articles from an xlsx file.
+    ADMIN_IMPORT_PRODUCTS = "admin_import_products"
     # Admin is entering a new Mystery Box variant via the /admin panel.
     ADMIN_ADD_BOX = "admin_add_box"

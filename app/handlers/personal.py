@@ -26,7 +26,7 @@ async def start_personal(call: CallbackQuery, bot: Bot, session: AsyncSession, u
         bot,
         session,
         user,
-        Banner.SEARCH,
+        Banner.ORDER_CHOICE,
         texts.PERSONAL_PROMPT,
         inline.back_button("order:start"),
     )

@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.db.base import AVITO_ID_BASE
 from app.db.models import MediaCache, MysteryBox, Order, OrderStatus, Product, RelayMap, User
 from app.states import UserState
 
@@ -51,6 +52,34 @@ async def get_user_by_username(session: AsyncSession, username: str) -> User | N
     return await session.scalar(
         select(User).where(func.lower(User.username) == username.lstrip("@").lower())
     )
+
+
+async def get_user_by_avito_chat(session: AsyncSession, chat_id: str) -> User | None:
+    return await session.scalar(select(User).where(User.avito_chat_id == chat_id))
+
+
+async def get_or_create_avito_user(
+    session: AsyncSession, avito_user_id: int, chat_id: str, name: str = ""
+) -> User:
+    """Find the Avito client by chat, creating a synthetic-id user if new."""
+    user = await get_user_by_avito_chat(session, chat_id)
+    if user is not None:
+        return user
+    user = User(
+        id=AVITO_ID_BASE + avito_user_id,
+        full_name=name or f"Avito {avito_user_id}",
+        source="avito",
+        avito_user_id=avito_user_id,
+        avito_chat_id=chat_id,
+    )
+    session.add(user)
+    try:
+        await session.flush()
+    except IntegrityError:
+        # Extremely unlikely (id collision) — surface it loudly.
+        await session.rollback()
+        raise
+    return user
 
 
 async def get_or_create_user_by_id(session: AsyncSession, user_id: int) -> User:
