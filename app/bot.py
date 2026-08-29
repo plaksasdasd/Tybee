@@ -47,7 +47,7 @@ async def _set_commands(bot: Bot) -> None:
     settings = get_settings()
     # Support commands belong in the support chat (their handlers are scoped there).
     support_commands = [
-        BotCommand(command="order", description="Создать заказ: /order название описание сумма"),
+        BotCommand(command="order", description='Создать заказ: /order "Название" [описание] сумма'),
         BotCommand(command="ban", description="Заблокировать клиента"),
         BotCommand(command="pardon", description="Разблокировать клиента"),
     ]

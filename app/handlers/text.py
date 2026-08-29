@@ -4,10 +4,12 @@ from aiogram import Bot, F, Router
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import texts
 from app.db.models import User
 from app.handlers.admin_panel import process_new_box, process_new_product
 from app.handlers.article import process_article
 from app.handlers.personal import process_personal
+from app.keyboards import inline
 from app.services.notify import relay_user_to_support
 from app.services.screens import show_menu
 from app.states import UserState
@@ -29,6 +31,13 @@ async def route_text(message: Message, bot: Bot, session: AsyncSession, user: Us
 
     if state == UserState.ADMIN_ADD_BOX.value:
         await process_new_box(message, session, user)
+        return
+
+    if state == UserState.ADMIN_IMPORT_PRODUCTS.value:
+        # В режиме импорта ждём документ; текст — напоминание
+        # Не мешаем обработке документа (она в admin_panel), просто подсказываем
+        if message.document is None:
+            await message.answer(texts.ADMIN_IMPORT_PROMPT, reply_markup=inline.admin_import_cancel())
         return
 
     if state == UserState.AWAIT_PERSONAL.value:

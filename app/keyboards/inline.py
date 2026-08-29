@@ -179,6 +179,7 @@ def admin_products(products: list[Product]) -> InlineKeyboardMarkup:
             callback_data=f"adm:prod:view:{product.id}",
         )
     kb.button(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")
+    kb.button(text=texts.BTN_ADM_IMPORT, callback_data="adm:prod:import")
     kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
     kb.adjust(1)
     return kb.as_markup()
@@ -197,6 +198,12 @@ def admin_product_view(product: Product) -> InlineKeyboardMarkup:
 def admin_add_cancel() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_ADM_CANCEL, callback_data="adm:panel:open")
+    return kb.as_markup()
+
+
+def admin_import_cancel() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_CANCEL, callback_data="adm:prod:list")
     return kb.as_markup()
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shlex
+
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
@@ -183,19 +185,62 @@ async def cmd_order(
     if not command.args:
         await message.reply(texts.ORDER_USAGE, parse_mode="HTML")
         return
-    tokens = command.args.split()
-    if len(tokens) < 2 or not tokens[-1].isdigit():
-        await message.reply(texts.ORDER_USAGE, parse_mode="HTML")
-        return
+
+    raw = command.args.strip()
+    title: str = ""
+    description: str = ""
+    price: int | None = None
+
+    # Поддержка разделителя "|" :  title | description | price  или  title | price
+    if "|" in raw:
+        parts = [p.strip() for p in raw.split("|")]
+        if not parts[-1].isdigit():
+            await message.reply(texts.ORDER_USAGE, parse_mode="HTML")
+            return
+        price = int(parts[-1])
+        if len(parts) == 2:
+            title = parts[0]
+            description = ""
+        elif len(parts) == 3:
+            title, description = parts[0], parts[1]
+        else:
+            title = parts[0]
+            description = " | ".join(parts[1:-1])
+        if not title:
+            await message.reply(texts.ORDER_USAGE, parse_mode="HTML")
+            return
+    else:
+        try:
+            tokens = shlex.split(raw)
+        except ValueError:
+            tokens = raw.split()
+        if len(tokens) < 2 or not tokens[-1].isdigit():
+            await message.reply(texts.ORDER_USAGE, parse_mode="HTML")
+            return
+        price = int(tokens[-1])
+        has_quotes = any(q in raw for q in ('"', "'", "“", "”", "‘", "’"))
+        if has_quotes:
+            # Кавычки: первый токен = название (может содержать пробелы), середина = описание
+            title = tokens[0]
+            description = " ".join(tokens[1:-1])
+        else:
+            # Без кавычек: многословное название склеивается.
+            # Для описания используйте кавычки или "|":  /order "Название" Описание 15000  или  /order Название | Описание | 15000
+            if len(tokens) == 2:
+                title = tokens[0]
+                description = ""
+            else:
+                title = " ".join(tokens[:-1])
+                description = ""
 
     target = await _resolve_target_user(session, message)
     if target is None:
         await message.reply(texts.ORDER_NEED_THREAD)
         return
 
-    title = tokens[0]
-    description = " ".join(tokens[1:-1])
-    price = int(tokens[-1])
+    if not title or price is None:
+        await message.reply(texts.ORDER_USAGE, parse_mode="HTML")
+        return
 
     order = await repo.create_order(
         session,

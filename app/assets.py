@@ -11,7 +11,6 @@ class Banner(str, Enum):
     PROFILE = "profile"
     ORDER_CHOICE = "order_choice"
     ARTICLE = "article"
-    SEARCH = "search"
     MYSTERY = "mystery"
     SUPPORT = "support"
     STATUS = "status"
@@ -19,7 +18,6 @@ class Banner(str, Enum):
     ALMOST = "almost"
     APPROVED = "approved"
     REJECTED = "rejected"
-    LOGO = "logo"
 
     @property
     def path(self) -> Path:
