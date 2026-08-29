@@ -170,19 +170,39 @@ def admin_add_box_cancel() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def admin_products(products: list[Product]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    for product in products:
+def admin_products(products: list[Product], page: int = 0) -> InlineKeyboardMarkup:
+    """Paginated product list: 10 per page, with navigation row."""
+    per_page = 10
+    total = len(products)
+    total_pages = (total + per_page - 1) // per_page or 1
+    page = max(0, min(page, total_pages - 1))
+    start = page * per_page
+    end = start + per_page
+    page_products = products[start:end]
+
+    # Build manually to control pagination row layout
+    keyboard: list[list[InlineKeyboardButton]] = []
+    for product in page_products:
         mark = "🟢" if product.available else "🔴"
-        kb.button(
-            text=f"{mark} {product.article} · {product.title}",
-            callback_data=f"adm:prod:view:{product.id}",
+        # Truncate title for button length
+        title = product.title[:24] + "…" if len(product.title) > 24 else product.title
+        keyboard.append(
+            [InlineKeyboardButton(text=f"{mark} {product.article} · {title}", callback_data=f"adm:prod:view:{product.id}")]
         )
-    kb.button(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")
-    kb.button(text=texts.BTN_ADM_IMPORT, callback_data="adm:prod:import")
-    kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
-    kb.adjust(1)
-    return kb.as_markup()
+
+    if total_pages > 1:
+        nav: list[InlineKeyboardButton] = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"adm:prod:list:{page - 1}"))
+        nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="adm:prod:nop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton(text="➡️ Далее", callback_data=f"adm:prod:list:{page + 1}"))
+        keyboard.append(nav)
+
+    keyboard.append([InlineKeyboardButton(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")])
+    keyboard.append([InlineKeyboardButton(text=texts.BTN_ADM_IMPORT, callback_data="adm:prod:import")])
+    keyboard.append([InlineKeyboardButton(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def admin_product_view(product: Product) -> InlineKeyboardMarkup:

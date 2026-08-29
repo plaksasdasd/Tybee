@@ -75,14 +75,20 @@ async def _show_box_view(call: CallbackQuery, box: MysteryBox) -> None:
     )
 
 
-async def _render_products(call: CallbackQuery, session: AsyncSession) -> None:
+PRODUCTS_PER_PAGE = 10
+
+
+async def _render_products(call: CallbackQuery, session: AsyncSession, page: int = 0) -> None:
     products = await repo.list_products(session)
-    text = (
-        texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
-        if products
-        else texts.ADMIN_PRODUCTS_EMPTY
-    )
-    await _safe_edit(call, text, inline.admin_products(products))
+    if not products:
+        await _safe_edit(call, texts.ADMIN_PRODUCTS_EMPTY, inline.admin_products(products, page=0))
+        return
+    per_page = 10
+    total_pages = (len(products) + per_page - 1) // per_page or 1
+    page = max(0, min(page, total_pages - 1))
+    text = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
+    text += f"\nСтр. {page + 1}/{total_pages}"
+    await _safe_edit(call, text, inline.admin_products(products, page=page))
 
 
 async def _render_boxes(call: CallbackQuery, session: AsyncSession) -> None:
@@ -126,11 +132,24 @@ async def panel_close(call: CallbackQuery, session: AsyncSession, user: User) ->
     await call.answer("Закрыто")
 
 
-@router.callback_query(F.data == "adm:prod:list")
+@router.callback_query(F.data.startswith("adm:prod:list"))
 async def prod_list(call: CallbackQuery, session: AsyncSession, user: User) -> None:
     if not repo.is_admin(user):
         return await _deny(call)
-    await _render_products(call, session)
+    # adm:prod:list  or adm:prod:list:<page>
+    page = 0
+    parts = call.data.split(":")
+    if len(parts) == 4:
+        try:
+            page = int(parts[3])
+        except ValueError:
+            page = 0
+    await _render_products(call, session, page=page)
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:prod:nop")
+async def prod_nop(call: CallbackQuery) -> None:
     await call.answer()
 
 
@@ -304,9 +323,13 @@ async def process_new_product(message: Message, session: AsyncSession, user: Use
         texts.ADMIN_ADD_DONE.format(title=title, article=article, price=price)
     )
     products = await repo.list_products(session)
+    # Show paginated list (page 0) — important when catalog is large (>10)
+    header = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
+    if len(products) > 10:
+        header += f"\nСтр. 1/{(len(products) + 10 - 1)//10}"
     await message.answer(
-        texts.ADMIN_PRODUCTS_HEADER.format(count=len(products)),
-        reply_markup=inline.admin_products(products),
+        header,
+        reply_markup=inline.admin_products(products, page=0),
     )
 
 
@@ -589,9 +612,12 @@ async def process_import_document(
         texts.ADMIN_IMPORT_RESULT.format(added=added, skipped=skipped, errors=errors, error_details=error_details)
     )
     products = await repo.list_products(session)
+    header = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
+    if len(products) > 10:
+        header += f"\nСтр. 1/{(len(products) + 10 - 1)//10}"
     await message.answer(
-        texts.ADMIN_PRODUCTS_HEADER.format(count=len(products)),
-        reply_markup=inline.admin_products(products),
+        header,
+        reply_markup=inline.admin_products(products, page=0),
     )
 
 
