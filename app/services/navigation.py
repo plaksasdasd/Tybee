@@ -82,7 +82,7 @@ async def _send_fresh(
         if cached_id is None or not _is_bad_file_id(exc):
             raise
         # Stale cached file_id — drop it and re-upload the banner from disk.
-        await repo.set_cached_file_id(session, banner.value, "")
+        await repo.delete_cached_file_id(session, banner.value)
         sent = await bot.send_photo(
             chat_id=user.id,
             photo=FSInputFile(banner.path),

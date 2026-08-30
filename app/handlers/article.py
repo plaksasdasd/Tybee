@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 
 from aiogram import Bot, F, Router
@@ -63,9 +64,9 @@ async def _offer_product(bot: Bot, session: AsyncSession, user: User, product) -
         title=product.title,
         price=product.price,
     )
-    description = f"📝 {product.description}\n" if product.description else ""
+    description = f"📝 {html.escape(product.description)}\n" if product.description else ""
     caption = texts.FOUND.format(
-        title=product.title,
+        title=html.escape(product.title),
         code=product.article,
         price=product.price,
         description=description,

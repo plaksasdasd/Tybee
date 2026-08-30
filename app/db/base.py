@@ -37,6 +37,9 @@ _COLUMN_PATCHES = (
     "CREATE INDEX IF NOT EXISTS ix_users_username_lower ON users (lower(username))",
     "CREATE INDEX IF NOT EXISTS ix_users_support_thread_id ON users (support_thread_id)",
     "CREATE INDEX IF NOT EXISTS ix_users_avito_chat_id ON users (avito_chat_id)",
+    # An older bug stored empty file_ids — they make Telegram reject sends
+    # with MEDIA_EMPTY; wipe them so banners re-upload from disk.
+    "DELETE FROM media_cache WHERE file_id = ''",
 )
 
 # Avito client ids are shifted into a range Telegram ids never reach, so the

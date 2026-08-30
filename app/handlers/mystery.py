@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,7 +52,7 @@ async def pick_box(call: CallbackQuery, bot: Bot, session: AsyncSession, user: U
         title=box.title,
         price=box.price,
     )
-    caption = texts.MYSTERY_OFFER.format(title=box.title, price=box.price)
+    caption = texts.MYSTERY_OFFER.format(title=html.escape(box.title), price=box.price)
     await show_screen(
         bot, session, user, Banner.APPROVED, caption, inline.pay_offer(order.id), force_new=True
     )

@@ -265,7 +265,12 @@ async def set_order_status(session: AsyncSession, order: Order, status: OrderSta
 # ---- Media cache ----
 async def get_cached_file_id(session: AsyncSession, key: str) -> str | None:
     cached = await session.get(MediaCache, key)
-    return cached.file_id if cached else None
+    if cached is None:
+        return None
+    # An empty file_id is never a valid media reference — treat it as absent so
+    # callers fall back to uploading the banner from disk instead of sending
+    # an empty photo (Telegram answers MEDIA_EMPTY).
+    return cached.file_id or None
 
 
 async def set_cached_file_id(session: AsyncSession, key: str, file_id: str) -> None:

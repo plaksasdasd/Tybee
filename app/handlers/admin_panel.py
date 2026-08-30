@@ -7,6 +7,7 @@ by :func:`process_new_product` (wired from the text router).
 """
 from __future__ import annotations
 
+import html
 import logging
 import os
 import tempfile
@@ -52,9 +53,9 @@ async def _show_product_view(call: CallbackQuery, product: Product) -> None:
         texts.ADMIN_PRODUCT_VIEW.format(
             id=product.id,
             article=product.article,
-            title=product.title,
+            title=html.escape(product.title),
             price=product.price,
-            description=product.description or "—",
+            description=html.escape(product.description or "—"),
             photo=_availability(product.photo_file_id is not None),
             available=_availability(product.available),
         ),
@@ -320,7 +321,7 @@ async def process_new_product(message: Message, session: AsyncSession, user: Use
     )
     await repo.set_state(session, user, UserState.MENU)
     await message.answer(
-        texts.ADMIN_ADD_DONE.format(title=title, article=article, price=price)
+        texts.ADMIN_ADD_DONE.format(title=html.escape(title), article=article, price=price)
     )
     products = await repo.list_products(session)
     # Show paginated list (page 0) — important when catalog is large (>10)
@@ -346,7 +347,9 @@ async def process_new_box(message: Message, session: AsyncSession, user: User) -
 
     await repo.create_box(session, title, price)
     await repo.set_state(session, user, UserState.MENU)
-    await message.answer(texts.ADMIN_ADD_BOX_DONE.format(title=title, price=price))
+    await message.answer(
+        texts.ADMIN_ADD_BOX_DONE.format(title=html.escape(title), price=price)
+    )
     boxes = await repo.list_boxes(session)
     await message.answer(
         texts.ADMIN_BOXES_HEADER.format(count=len(boxes)),
