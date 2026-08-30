@@ -1,6 +1,7 @@
 """Thin async data-access helpers. Each function takes an AsyncSession."""
 from __future__ import annotations
 
+import html
 import secrets
 
 from aiogram.types import User as TgUser
@@ -110,8 +111,13 @@ async def set_screen(session: AsyncSession, user: User, message_id: int | None) 
 
 
 def display_name(user: User) -> str:
+    """Client name for embedding into HTML messages.
+
+    full_name and username are client-controlled — escape them so a crafted
+    name cannot inject markup into admin notifications or client screens.
+    """
     handle = f" (@{user.username})" if user.username else ""
-    return f"{user.full_name}{handle}".strip()
+    return html.escape(f"{user.full_name}{handle}".strip())
 
 
 def is_admin(user: User) -> bool:

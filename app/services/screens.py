@@ -1,6 +1,8 @@
 """High-level screen renderers built on top of the navigation engine."""
 from __future__ import annotations
 
+import html
+
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +29,10 @@ async def show_menu(
 
 async def show_payment(bot: Bot, session: AsyncSession, user: User, order) -> None:
     caption = texts.PAYMENT.format(
-        order_id=order.id, title=order.title, price=order.price, requisites=requisites()
+        order_id=order.id,
+        title=html.escape(order.title or ""),
+        price=order.price,
+        requisites=requisites(),
     )
     await show_screen(bot, session, user, Banner.PAYMENT, caption, inline.payment_actions(order.id))
 
@@ -38,12 +43,12 @@ async def send_order_invoice(bot: Bot, session: AsyncSession, user: User, order)
     Avito clients get a plain Avito message instead (plus a confirm/reject
     panel in their support thread — see notify.send_avito_invoice).
     """
-    description = f"{order.description}\n" if order.description else ""
+    description = f"{html.escape(order.description)}\n" if order.description else ""
     if user.source == "avito":
         await notify.send_avito_invoice(bot, session, user, order)
         return
     caption = texts.ORDER_CREATED.format(
-        title=order.title,
+        title=html.escape(order.title or ""),
         description=description,
         price=order.price,
         requisites=requisites(),

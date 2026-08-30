@@ -75,14 +75,20 @@ async def _show_box_view(call: CallbackQuery, box: MysteryBox) -> None:
     )
 
 
-async def _render_products(call: CallbackQuery, session: AsyncSession) -> None:
+PRODUCTS_PER_PAGE = 10
+
+
+async def _render_products(call: CallbackQuery, session: AsyncSession, page: int = 0) -> None:
     products = await repo.list_products(session)
-    text = (
-        texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
-        if products
-        else texts.ADMIN_PRODUCTS_EMPTY
-    )
-    await _safe_edit(call, text, inline.admin_products(products))
+    if not products:
+        await _safe_edit(call, texts.ADMIN_PRODUCTS_EMPTY, inline.admin_products(products, page=0))
+        return
+    per_page = 10
+    total_pages = (len(products) + per_page - 1) // per_page or 1
+    page = max(0, min(page, total_pages - 1))
+    text = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
+    text += f"\nСтр. {page + 1}/{total_pages}"
+    await _safe_edit(call, text, inline.admin_products(products, page=page))
 
 
 async def _render_boxes(call: CallbackQuery, session: AsyncSession) -> None:
@@ -126,11 +132,24 @@ async def panel_close(call: CallbackQuery, session: AsyncSession, user: User) ->
     await call.answer("Закрыто")
 
 
-@router.callback_query(F.data == "adm:prod:list")
+@router.callback_query(F.data.startswith("adm:prod:list"))
 async def prod_list(call: CallbackQuery, session: AsyncSession, user: User) -> None:
     if not repo.is_admin(user):
         return await _deny(call)
-    await _render_products(call, session)
+    # adm:prod:list  or adm:prod:list:<page>
+    page = 0
+    parts = call.data.split(":")
+    if len(parts) == 4:
+        try:
+            page = int(parts[3])
+        except ValueError:
+            page = 0
+    await _render_products(call, session, page=page)
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:prod:nop")
+async def prod_nop(call: CallbackQuery) -> None:
     await call.answer()
 
 
@@ -304,9 +323,13 @@ async def process_new_product(message: Message, session: AsyncSession, user: Use
         texts.ADMIN_ADD_DONE.format(title=title, article=article, price=price)
     )
     products = await repo.list_products(session)
+    # Show paginated list (page 0) — important when catalog is large (>10)
+    header = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
+    if len(products) > 10:
+        header += f"\nСтр. 1/{(len(products) + 10 - 1)//10}"
     await message.answer(
-        texts.ADMIN_PRODUCTS_HEADER.format(count=len(products)),
-        reply_markup=inline.admin_products(products),
+        header,
+        reply_markup=inline.admin_products(products, page=0),
     )
 
 
@@ -425,28 +448,69 @@ async def process_import_document(
             await message.answer(texts.ADMIN_IMPORT_BAD_FILE, reply_markup=inline.admin_import_cancel())
             return
 
-        # Detect header
+        # Header-aware column mapping — поддерживает и "Артикул|Название|Цена|Описание" и "SKU|NAME|Text|Price|Photo"
         start_idx = 0
-        if rows:
-            first = rows[0]
-            if first and len(first) >= 2:
-                a0 = _norm_article(first[0])
-                t0 = str(first[1] or "").strip()
-                p0 = str(first[2] or "").strip() if len(first) > 2 else ""
-                if _is_header_row(a0, t0, p0) or not ARTICLE_RE.match(a0):
-                    # If first row is header or article invalid and contains header words, skip it
-                    # Check if any header word present
-                    combined = " ".join([str(c or "").lower() for c in first[:4]])
-                    if any(h in combined for h in ("артикул", "article", "название", "title", "цена", "price")):
-                        start_idx = 1
-                    elif not ARTICLE_RE.match(a0):
-                        # Could be header without keywords but still invalid article -> treat as header if not digit
-                        # only skip if first row article not 6 digits and second row looks like data
-                        if len(rows) > 1 and rows[1] and _norm_article(rows[1][0]) and ARTICLE_RE.match(_norm_article(rows[1][0])):
-                            start_idx = 1
+        article_idx, title_idx, price_idx, desc_idx, avail_idx = 0, 1, 2, 3, 4
+        if rows and rows[0]:
+            header = rows[0]
+            header_lower = [str(c or "").strip().lower() for c in header]
+            # Check if first row looks like header
+            combined_header = " ".join(header_lower)
+            has_header_keywords = any(
+                k in combined_header for k in ("артикул", "sku", "article", "название", "name", "title", "цена", "price", "опис", "text", "desc")
+            )
+            # Also treat as header if article cell not 6 digits but contains letters
+            first_article_norm = _norm_article(header[0]) if len(header) > 0 else ""
+            is_header = has_header_keywords or not ARTICLE_RE.match(first_article_norm)
+            # Only skip first row if it actually looks like header and second row looks like data
+            if is_header:
+                # Verify second row looks like data (article 6 digits) to avoid false positive on header-less files where first product title is text
+                looks_like_header = has_header_keywords
+                if not looks_like_header and len(rows) > 1 and rows[1]:
+                    second_art = _norm_article(rows[1][0]) if len(rows[1]) > 0 else ""
+                    looks_like_header = bool(ARTICLE_RE.match(second_art))
+                if looks_like_header:
+                    # Map columns by header names
+                    def _find_idx(keywords: list[str]) -> int | None:
+                        for i, h in enumerate(header_lower):
+                            if any(k in h for k in keywords):
+                                return i
+                        return None
 
-        # Limit
-        max_rows = 500
+                    a_idx = _find_idx(["артикул", "sku", "article", "код"])
+                    t_idx = _find_idx(["название", "name", "title"])
+                    p_idx = _find_idx(["цена", "price", "стоимость"])
+                    d_idx = _find_idx(["опис", "text", "desc"])
+                    av_idx = _find_idx(["доступ", "available", "актив", "в наличии"])
+
+                    # Fallback defaults if not found
+                    article_idx = a_idx if a_idx is not None else 0
+                    title_idx = t_idx if t_idx is not None else 1
+                    # price fallback
+                    if p_idx is not None:
+                        price_idx = p_idx
+                    else:
+                        # if header has 5 cols like SKU,NAME,Text,Price,Photo -> price at 3, desc at 2
+                        price_idx = 2
+                    if d_idx is not None:
+                        desc_idx = d_idx
+                    else:
+                        # Find first unused index for description
+                        used = {article_idx, title_idx, price_idx}
+                        if av_idx is not None:
+                            used.add(av_idx)
+                        desc_idx = None
+                        for i in range(len(header)):
+                            if i not in used:
+                                desc_idx = i
+                                break
+                        if desc_idx is None:
+                            desc_idx = 3
+                    avail_idx = av_idx  # may be None -> ignore
+                    start_idx = 1
+
+        # Limit — увеличил до 2000 для больших каталогов (файл ебатория ~605 строк)
+        max_rows = 2000
         data_rows = rows[start_idx : start_idx + max_rows]
 
         for idx, row in enumerate(data_rows, start=start_idx + 1):
@@ -455,13 +519,17 @@ async def process_import_document(
             # Skip fully empty rows
             if all(c is None or str(c).strip() == "" for c in row):
                 continue
-            # Pad to 5 cols
-            vals = list(row) + [None] * 5
-            article_raw = vals[0]
-            title_raw = vals[1]
-            price_raw = vals[2]
-            desc_raw = vals[3] if len(vals) > 3 else None
-            avail_raw = vals[4] if len(vals) > 4 else None
+            # Safe get by index
+            def _cell(i: int | None) -> object | None:
+                if i is None or i >= len(row):
+                    return None
+                return row[i]
+
+            article_raw = _cell(article_idx)
+            title_raw = _cell(title_idx)
+            price_raw = _cell(price_idx)
+            desc_raw = _cell(desc_idx)
+            avail_raw = _cell(avail_idx) if avail_idx is not None else None
 
             article = _norm_article(article_raw)
             title = str(title_raw or "").strip()
@@ -518,7 +586,7 @@ async def process_import_document(
 
         # If more rows than max, note
         if len(rows) - start_idx > max_rows:
-            error_lines.append(f"• Показаны первые {max_rows} строк, остальные проигнорированы (лимит 500)\n")
+            error_lines.append(f"• Показаны первые {max_rows} строк, остальные проигнорированы (лимит {max_rows})\n")
 
     except Exception as exc:
         logger.exception("Failed to parse xlsx: %s", exc)
@@ -544,9 +612,12 @@ async def process_import_document(
         texts.ADMIN_IMPORT_RESULT.format(added=added, skipped=skipped, errors=errors, error_details=error_details)
     )
     products = await repo.list_products(session)
+    header = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
+    if len(products) > 10:
+        header += f"\nСтр. 1/{(len(products) + 10 - 1)//10}"
     await message.answer(
-        texts.ADMIN_PRODUCTS_HEADER.format(count=len(products)),
-        reply_markup=inline.admin_products(products),
+        header,
+        reply_markup=inline.admin_products(products, page=0),
     )
 
 

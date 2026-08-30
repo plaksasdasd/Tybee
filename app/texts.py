@@ -1,8 +1,6 @@
 """All user-facing copy for the Тайби bot, in one place."""
 from __future__ import annotations
 
-BRAND = "Тайби"
-
 WELCOME = (
     "<b>Тайби</b> — удобный сервис доставки товаров со всего мира 🌍\n\n"
     "Привозим что угодно из США, Японии, Европы, ЮАР и других стран: "
@@ -10,8 +8,6 @@ WELCOME = (
     "Без огромных комиссий и с простой доставкой.\n\n"
     "Выберите действие в меню ниже 👇"
 )
-
-MENU_HINT = "Главное меню — выберите раздел:"
 
 # ---- Profile ----
 PROFILE = (
@@ -177,7 +173,6 @@ DIALOG_OPEN = (
     "Чтобы вернуться в меню, нажмите кнопку ниже."
 )
 
-DIALOG_SENT = "✉️ Сообщение отправлено команде."
 DIALOG_REPLY_PREFIX = "💬 <b>Команда Тайби:</b>\n"
 
 # ---- Admin ----
@@ -244,16 +239,6 @@ THREAD_INTRO = (
     "🆔 ID: <code>{user_id}</code>\n\n"
     "Поддержка, заказы и переписка с клиентом — здесь.\n"
     "Все заказы клиента находятся в этой ветке.\n"
-    "Любое текстовое сообщение в этой ветке уходит клиенту.\n\n"
-    "Команды: /order, /ban, /pardon."
-)
-
-ORDER_THREAD_INTRO = (
-    "🧾 <b>Заказ #{order_id}</b>\n\n"
-    "👤 {client}\n"
-    "🆔 ID: <code>{user_id}</code>\n"
-    "{description}"
-    "Заказ добавлен в общую ветку клиента.\n"
     "Любое текстовое сообщение в этой ветке уходит клиенту.\n\n"
     "Команды: /order, /ban, /pardon."
 )
@@ -490,4 +475,4 @@ BTN_CONFIRM_PAYMENT = "✅ Подтвердить оплату"
 BTN_REJECT_PAYMENT = "❎ Отклонить"
 BTN_PAY_FINE = "⭐ Оплатить штраф ({fine})"
 BTN_TO_PAYMENT = "💸 Перейти к оплате"
-BTN_OFFER_URL = "http://tybee.ru/doc"
+BTN_OFFER_URL = "https://tybee.ru/publicoffer"

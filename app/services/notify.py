@@ -41,6 +41,11 @@ def _plain(text: str) -> str:
     return html_module.unescape(_TAG_RE.sub("", text))
 
 
+def _esc(value: object | None) -> str:
+    """Escape client-controlled text for embedding into HTML messages."""
+    return html_module.escape(str(value or ""))
+
+
 def requisites_plain() -> str:
     return _plain(requisites())
 
@@ -225,7 +230,7 @@ async def send_to_client_thread(
 async def notify_new_payment(bot: Bot, session: AsyncSession, user: User, order: Order) -> None:
     text = texts.ADMIN_NEW_PAYMENT.format(
         order_id=order.id,
-        title=order.title or "—",
+        title=_esc(order.title),
         code=order.article or "—",
         price=order.price,
         client=_client(user),
@@ -237,7 +242,7 @@ async def notify_new_payment(bot: Bot, session: AsyncSession, user: User, order:
 
 async def notify_new_personal(bot: Bot, session: AsyncSession, user: User, order: Order) -> None:
     text = texts.ADMIN_NEW_PERSONAL.format(
-        order_id=order.id, client=_client(user), description=order.description or ""
+        order_id=order.id, client=_client(user), description=_esc(order.description)
     )
     await send_to_client_thread(bot, session, text, user)
 
@@ -246,7 +251,7 @@ async def notify_new_order(bot: Bot, session: AsyncSession, user: User, order: O
     """Announce a support-created order in the client's shared thread."""
     text = texts.ADMIN_NEW_ORDER.format(
         order_id=order.id,
-        title=order.title or "—",
+        title=_esc(order.title),
         price=order.price,
         client=_client(user),
     )
@@ -257,7 +262,7 @@ async def post_order_panel(bot: Bot, session: AsyncSession, user: User, order: O
     """Post the order's status control panel into the client's shared thread."""
     text = texts.ORDER_PANEL.format(
         order_id=order.id,
-        title=order.title or "Заказ",
+        title=_esc(order.title) or "Заказ",
         status=status_label(order.status),
     )
     await send_to_client_thread(
