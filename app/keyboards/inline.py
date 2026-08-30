@@ -171,7 +171,7 @@ def admin_add_box_cancel() -> InlineKeyboardMarkup:
 
 
 def admin_products(products: list[Product], page: int = 0) -> InlineKeyboardMarkup:
-    """Paginated product list: 10 per page, with navigation row."""
+    """Paginated product list: 10 per page, импорт/создание — первые кнопки."""
     per_page = 10
     total = len(products)
     total_pages = (total + per_page - 1) // per_page or 1
@@ -180,11 +180,13 @@ def admin_products(products: list[Product], page: int = 0) -> InlineKeyboardMark
     end = start + per_page
     page_products = products[start:end]
 
-    # Build manually to control pagination row layout
+    # Первые кнопки — импорт и создание (требование), затем список
     keyboard: list[list[InlineKeyboardButton]] = []
+    keyboard.append([InlineKeyboardButton(text=texts.BTN_ADM_IMPORT, callback_data="adm:prod:import")])
+    keyboard.append([InlineKeyboardButton(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")])
+
     for product in page_products:
         mark = "🟢" if product.available else "🔴"
-        # Truncate title for button length
         title = product.title[:24] + "…" if len(product.title) > 24 else product.title
         keyboard.append(
             [InlineKeyboardButton(text=f"{mark} {product.article} · {title}", callback_data=f"adm:prod:view:{product.id}")]
@@ -199,8 +201,6 @@ def admin_products(products: list[Product], page: int = 0) -> InlineKeyboardMark
             nav.append(InlineKeyboardButton(text="➡️ Далее", callback_data=f"adm:prod:list:{page + 1}"))
         keyboard.append(nav)
 
-    keyboard.append([InlineKeyboardButton(text=texts.BTN_ADM_ADD_PRODUCT, callback_data="adm:prod:add")])
-    keyboard.append([InlineKeyboardButton(text=texts.BTN_ADM_IMPORT, callback_data="adm:prod:import")])
     keyboard.append([InlineKeyboardButton(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 

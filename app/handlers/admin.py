@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import shlex
 
 from aiogram import Bot, F, Router
@@ -55,7 +56,9 @@ async def _resolve_command_target(
         if token.startswith("@") or not token.lstrip("-").isdigit():
             target = await repo.get_user_by_username(session, token)
             if target is None:
-                return None, texts.TARGET_USERNAME_NOT_FOUND.format(username=token)
+                return None, texts.TARGET_USERNAME_NOT_FOUND.format(
+                    username=html.escape(token)
+                )
             return target, None
         return await repo.get_or_create_user_by_id(session, int(token)), None
 
@@ -163,7 +166,7 @@ async def change_status(call: CallbackQuery, bot: Bot, session: AsyncSession, us
             await call.message.edit_text(
                 texts.ORDER_PANEL.format(
                     order_id=order.id,
-                    title=order.title or "Заказ",
+                    title=html.escape(order.title or "Заказ"),
                     status=notify.status_label(order.status),
                 ),
                 parse_mode="HTML",

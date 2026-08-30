@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,7 +46,7 @@ async def show_orders(call: CallbackQuery, bot: Bot, session: AsyncSession, user
 
     lines = [texts.ORDERS_HEADER]
     for order in orders:
-        title = order.title or "Персональная заявка"
+        title = html.escape(order.title or "Персональная заявка")
         status = texts.STATUS_LABELS.get(order.status, order.status).capitalize()
         price = f" — {order.price} ₽" if order.price else ""
         lines.append(f"📦 <b>#{order.id}</b> {title}{price}\n    └ статус: {status}")
