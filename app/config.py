@@ -30,8 +30,9 @@ class Settings(BaseSettings):
     avito_webhook_url: str = ""
     # Secret path segment protecting the webhook endpoint.
     avito_webhook_secret: str = ""
-    # Local port the webhook HTTP server listens on.
+    # Local port the shared webhook/support-panel HTTP server listens on.
     avito_webhook_port: int = 8080
+    web_panel_enabled: bool = True
 
     postgres_host: str = "db"
     postgres_port: int = 5432

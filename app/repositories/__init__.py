@@ -5,13 +5,23 @@ import html
 import secrets
 
 from aiogram.types import User as TgUser
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.base import AVITO_ID_BASE
-from app.db.models import MediaCache, MysteryBox, Order, OrderStatus, Product, RelayMap, User
+from app.db.models import (
+    MediaCache,
+    MysteryBox,
+    Order,
+    OrderStatus,
+    Product,
+    RelayMap,
+    SupportMessage,
+    SupportOperator,
+    User,
+)
 from app.states import UserState
 
 
@@ -260,6 +270,8 @@ async def count_user_orders(session: AsyncSession, user_id: int) -> int:
 
 async def set_order_status(session: AsyncSession, order: Order, status: OrderStatus) -> None:
     order.status = status.value
+    await session.flush()
+    await session.refresh(order)
 
 
 # ---- Media cache ----
@@ -295,3 +307,131 @@ async def remember_relay(session: AsyncSession, support_message_id: int, user_id
 async def resolve_relay(session: AsyncSession, support_message_id: int) -> int | None:
     row = await session.get(RelayMap, support_message_id)
     return row.user_id if row else None
+
+
+# ---- Web support panel ----
+async def get_support_operator(
+    session: AsyncSession, telegram_id: int
+) -> SupportOperator | None:
+    return await session.get(SupportOperator, telegram_id)
+
+
+async def list_support_operators(session: AsyncSession) -> list[SupportOperator]:
+    result = await session.scalars(
+        select(SupportOperator).order_by(
+            SupportOperator.is_active.desc(), SupportOperator.display_name
+        )
+    )
+    return list(result)
+
+
+async def save_support_operator(
+    session: AsyncSession,
+    telegram_id: int,
+    display_name: str,
+    is_active: bool = True,
+) -> SupportOperator:
+    operator = await get_support_operator(session, telegram_id)
+    if operator is None:
+        operator = SupportOperator(
+            telegram_id=telegram_id, display_name=display_name, is_active=is_active
+        )
+        session.add(operator)
+    else:
+        operator.display_name = display_name
+        operator.is_active = is_active
+    await session.flush()
+    return operator
+
+
+async def record_support_message(
+    session: AsyncSession,
+    user_id: int,
+    direction: str,
+    body: str,
+    channel: str,
+    *,
+    operator_telegram_id: int | None = None,
+    operator_name: str | None = None,
+    external_id: str | None = None,
+) -> SupportMessage:
+    if external_id is not None:
+        existing = await session.scalar(
+            select(SupportMessage).where(SupportMessage.external_id == external_id)
+        )
+        if existing is not None:
+            return existing
+    message = SupportMessage(
+        user_id=user_id,
+        direction=direction,
+        body=body,
+        channel=channel,
+        operator_telegram_id=operator_telegram_id,
+        operator_name=operator_name,
+        external_id=external_id,
+    )
+    session.add(message)
+    await session.flush()
+    return message
+
+
+async def list_support_clients(
+    session: AsyncSession, query: str = "", offset: int = 0, limit: int = 50
+) -> tuple[list[User], dict[int, SupportMessage], int]:
+    filters = []
+    query = query.strip()
+    if query:
+        if query.lstrip("-").isdigit():
+            filters.append(User.id == int(query))
+        else:
+            pattern = f"%{query.lstrip('@')}%"
+            filters.append(
+                or_(
+                    User.full_name.ilike(pattern),
+                    User.username.ilike(pattern),
+                    User.avito_chat_id.ilike(pattern),
+                )
+            )
+    total = await session.scalar(select(func.count()).select_from(User).where(*filters)) or 0
+    last_id = (
+        select(func.max(SupportMessage.id))
+        .where(SupportMessage.user_id == User.id)
+        .scalar_subquery()
+    )
+    result = await session.scalars(
+        select(User)
+        .where(*filters)
+        .order_by(func.coalesce(last_id, 0).desc(), User.created_at.desc())
+        .offset(offset)
+        .limit(min(limit, 100))
+    )
+    users = list(result)
+    latest: dict[int, SupportMessage] = {}
+    if users:
+        user_ids = [user.id for user in users]
+        latest_ids = (
+            select(func.max(SupportMessage.id))
+            .where(SupportMessage.user_id.in_(user_ids))
+            .group_by(SupportMessage.user_id)
+            .scalar_subquery()
+        )
+        rows = await session.scalars(
+            select(SupportMessage).where(SupportMessage.id.in_(latest_ids))
+        )
+        latest = {message.user_id: message for message in rows}
+    return users, latest, total
+
+
+async def list_support_messages(
+    session: AsyncSession, user_id: int, after: int = 0, limit: int = 200
+) -> list[SupportMessage]:
+    statement = select(SupportMessage).where(SupportMessage.user_id == user_id)
+    if after:
+        statement = statement.where(SupportMessage.id > after).order_by(SupportMessage.id)
+    else:
+        statement = statement.order_by(SupportMessage.id.desc())
+    result = await session.scalars(statement.limit(min(limit, 500)))
+    messages = list(result)
+    if not after:
+        messages.reverse()
+    return messages

@@ -302,7 +302,10 @@ async def main() -> None:
     await dp.feed_update(bot, msg_update(ADMIN_ID, "Доставим за 7-10 дней", reply_to=rid))
     back = [m for m in find("SendMessage") if int(m["chat_id"]) == CUSTOMER_ID]
     assert back, "admin reply not relayed to customer"
-    assert "Команда" in back[-1]["text"]
+    assert "Tester" in back[-1]["text"]
+    assert not [m for m in find("SendMessage") if int(m["chat_id"]) == ADMIN_ID], (
+        "admin reply was echoed back into the support destination"
+    )
     print("admin reply -> relayed to customer")
 
     # 11) reject path on a fresh order
@@ -389,7 +392,7 @@ async def main() -> None:
     # 18) /admin -> panel with catalog/stats buttons
     calls.clear()
     await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "/admin"))
-    panel = [d for d in find("SendMessage") if "adm:prod:add" in str(d.get("reply_markup", ""))]
+    panel = [d for d in find("SendMessage") if "adm:prod:list" in str(d.get("reply_markup", ""))]
     assert panel, "/admin did not open the panel"
     print("/admin -> panel opened")
 
@@ -513,6 +516,31 @@ async def main() -> None:
     assert not await _process_next(bot), "processed webhook was handled twice"
     assert not calls, "duplicate webhook produced another support message"
     print("Avito webhook -> durable storage + processing + persistent dedup")
+
+    # 26) /panel -> web-panel link (or an explicit missing-URL configuration error)
+    calls.clear()
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "/panel"))
+    panel_replies = [d.get("text", "") for d in find("SendMessage")]
+    assert any("Веб-панель" in text or "AVITO_WEBHOOK_URL" in text for text in panel_replies)
+    print("/panel -> web-panel entry point works")
+
+    # 27) /admin operators -> add, rename, and disable an operator
+    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:ops", screen_id))
+    assert any("Оператор" in d.get("text", "") for d in find("EditMessageText"))
+    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:ops:add", screen_id))
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "555 Мария"))
+    async with session_factory() as s:
+        from app.db.models import SupportOperator
+
+        operator = await s.get(SupportOperator, 555)
+        assert operator is not None and operator.display_name == "Мария" and operator.is_active
+    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:ops:add", screen_id))
+    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "555 Мария Иванова"))
+    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:ops:toggle:555", screen_id))
+    async with session_factory() as s:
+        operator = await s.get(SupportOperator, 555)
+        assert operator.display_name == "Мария Иванова" and not operator.is_active
+    print("/admin operators -> add + rename + disable works")
 
     await bot.session.close()
     print("\nALL FLOW ASSERTIONS PASSED ✅")

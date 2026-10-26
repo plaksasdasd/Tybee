@@ -54,7 +54,8 @@ async def _set_commands(bot: Bot) -> None:
     # The admin panel is a private-chat command for administrators.
     admin_private_commands = [
         BotCommand(command="start", description="Открыть меню Тайби"),
-        BotCommand(command="admin", description="Админ-панель: каталог и статистика"),
+        BotCommand(command="admin", description="Админ-панель: каталог и операторы"),
+        BotCommand(command="panel", description="Открыть веб-панель поддержки"),
         BotCommand(command="ban", description="Заблокировать: /ban id или @username"),
         BotCommand(command="pardon", description="Разблокировать: /pardon id или @username"),
     ]
@@ -138,7 +139,7 @@ async def run() -> None:
     logger.info("Starting Тайби bot as @%s", me.username)
     await _check_support_chat(bot, me.id)
 
-    from app.avito_webhook import start_avito_webhook
+    from app.avito_webhook import start_web_server
     from app.config import get_settings
     from app.services.avito import close_avito, get_avito
 
@@ -150,7 +151,7 @@ async def run() -> None:
             "AVITO_ENABLED=true, but AVITO_CLIENT_ID/AVITO_CLIENT_SECRET are not "
             "set — the Avito integration stays OFF."
         )
-    webhook_runner = await start_avito_webhook(bot)
+    webhook_runner = await start_web_server(bot, me.username or "")
     try:
         await dp.start_polling(bot)
     finally:

@@ -284,6 +284,15 @@ async def _send_avito(user: User, text: str) -> bool:
         return False
 
 
+async def send_avito_text(user: User, text: str) -> bool:
+    return await _send_avito(user, text)
+
+
+async def _require_avito_delivery(user: User, text: str) -> None:
+    if not await _send_avito(user, text):
+        raise RuntimeError(f"Could not deliver an Avito message to user {user.id}")
+
+
 def _is_bad_file_id(exc: TelegramAPIError) -> bool:
     return "file identifier" in str(exc).lower()
 
@@ -299,7 +308,7 @@ async def notify_order_status(
     """
     user = await repo.get_user(session, user_id) if session is not None else None
     if user is not None and user.source == "avito":
-        await _send_avito(
+        await _require_avito_delivery(
             user,
             texts.AVITO_STATUS_NOTIFY.format(
                 order_id=order.id, status=status_label(order.status)
@@ -342,7 +351,7 @@ async def send_avito_invoice(bot: Bot, session: AsyncSession, user: User, order:
     manually via the buttons posted into the client's thread.
     """
     description = f"{order.description}\n" if order.description else ""
-    await _send_avito(
+    await _require_avito_delivery(
         user,
         texts.AVITO_INVOICE.format(
             title=order.title or "Заказ",
@@ -362,7 +371,7 @@ async def send_avito_invoice(bot: Bot, session: AsyncSession, user: User, order:
 
 async def send_avito_payment_decision(user: User, order: Order, *, approved: bool) -> None:
     text = texts.AVITO_APPROVED if approved else texts.AVITO_REJECTED
-    await _send_avito(user, text.format(order_id=order.id))
+    await _require_avito_delivery(user, text.format(order_id=order.id))
 
 
 async def notify_dialog_closed(bot: Bot, session: AsyncSession, user: User) -> None:
@@ -376,9 +385,18 @@ async def notify_dialog_closed(bot: Bot, session: AsyncSession, user: User) -> N
 async def relay_user_to_support(
     bot: Bot, session: AsyncSession, user: User, message: Message
 ) -> bool:
+    body = message.text or message.caption or texts.AVITO_ATTACHMENT.format(kind="вложение")
+    await repo.record_support_message(
+        session,
+        user.id,
+        "inbound",
+        body,
+        "telegram",
+        external_id=f"telegram:{user.id}:{message.message_id}",
+    )
     chat_id, thread_id = await _support_destination(bot, session, user)
     if chat_id is None:
-        return False
+        return get_settings().web_panel_enabled
 
     order_id = user.current_order_id or 0
     header = texts.ADMIN_DIALOG_MSG.format(client=_client(user), order_id=order_id)

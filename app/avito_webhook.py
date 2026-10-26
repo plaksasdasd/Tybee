@@ -69,6 +69,14 @@ async def process_avito_message(bot: Bot, value: dict) -> None:
             name = await avito.get_chat_user_name(chat_id)
             if name:
                 user.full_name = name
+        await repo.record_support_message(
+            session,
+            user.id,
+            "inbound",
+            body,
+            "avito",
+            external_id=f"avito:{value.get('id')}",
+        )
         if user.is_banned:
             await session.commit()
             return
@@ -80,7 +88,7 @@ async def process_avito_message(bot: Bot, value: dict) -> None:
         sent = await notify.send_to_client_thread(
             bot, session, f"{header}\n{html.escape(body)}", user
         )
-        if sent is None:
+        if sent is None and not get_settings().web_panel_enabled:
             raise RuntimeError(f"Could not relay Avito message from chat {chat_id}")
         await session.commit()
 
@@ -140,7 +148,7 @@ class AvitoWebhookServer:
     def __init__(
         self,
         runner: web.AppRunner,
-        worker: asyncio.Task[None],
+        worker: asyncio.Task[None] | None,
         wakeup: asyncio.Event,
         stop: asyncio.Event,
     ) -> None:
@@ -152,7 +160,8 @@ class AvitoWebhookServer:
     async def cleanup(self) -> None:
         self._stop.set()
         self._wakeup.set()
-        await self._worker
+        if self._worker is not None:
+            await self._worker
         await self._runner.cleanup()
 
 
@@ -180,45 +189,59 @@ async def handle_webhook(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
-async def start_avito_webhook(bot: Bot) -> AvitoWebhookServer | None:
-    settings = get_settings()
-    avito = get_avito()
-    if not avito.enabled:
-        return None
-    if not settings.avito_webhook_url:
-        logger.warning(
-            "Avito credentials are set but AVITO_WEBHOOK_URL is empty — incoming "
-            "Avito messages will NOT be received. Set it to the public HTTPS "
-            "address of this machine."
-        )
-        return None
-    if not settings.avito_webhook_secret.strip():
-        logger.error(
-            "AVITO_WEBHOOK_SECRET is required — the Avito webhook receiver will "
-            "NOT start without a secret URL path."
-        )
-        return None
+def create_web_application(bot: Bot, bot_username: str) -> web.Application:
+    from app.web_panel import health, setup_web_panel
 
+    settings = get_settings()
     app = web.Application()
     app["bot"] = bot
     app["wakeup"] = asyncio.Event()
-    stop = asyncio.Event()
-    app.router.add_post(settings.avito_webhook_path, handle_webhook)
+    app.router.add_get("/health", health)
+    avito_ready = (
+        get_avito().enabled
+        and bool(settings.avito_webhook_url)
+        and bool(settings.avito_webhook_secret.strip())
+    )
+    if avito_ready:
+        app.router.add_post(settings.avito_webhook_path, handle_webhook)
+    if settings.web_panel_enabled:
+        setup_web_panel(app, bot_username)
+    return app
 
+
+async def start_web_server(bot: Bot, bot_username: str) -> AvitoWebhookServer | None:
+    settings = get_settings()
+    avito = get_avito()
+    if not settings.web_panel_enabled and not avito.enabled:
+        return None
+    avito_ready = (
+        avito.enabled
+        and bool(settings.avito_webhook_url)
+        and bool(settings.avito_webhook_secret.strip())
+    )
+    if avito.enabled and not avito_ready:
+        logger.error(
+            "Avito webhook is disabled: AVITO_WEBHOOK_URL and AVITO_WEBHOOK_SECRET "
+            "must both be configured"
+        )
+
+    app = create_web_application(bot, bot_username)
+    stop = asyncio.Event()
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host="0.0.0.0", port=settings.avito_webhook_port)
     await site.start()
-    logger.info("Avito webhook server listening on port %s", settings.avito_webhook_port)
+    logger.info("Web server listening on port %s", settings.avito_webhook_port)
 
-    worker = asyncio.create_task(_run_worker(bot, app["wakeup"], stop))
+    worker = asyncio.create_task(_run_worker(bot, app["wakeup"], stop)) if avito_ready else None
     server = AvitoWebhookServer(runner, worker, app["wakeup"], stop)
-    try:
-        await avito.subscribe_webhook(settings.avito_subscription_url)
-    except Exception as exc:
-        logger.error(
-            "Could not subscribe the Avito webhook: %s — incoming messages "
-            "will not arrive until subscription succeeds",
-            exc,
-        )
+    if avito_ready:
+        try:
+            await avito.subscribe_webhook(settings.avito_subscription_url)
+        except Exception as exc:
+            logger.error(
+                "Could not subscribe the Avito webhook: %s — incoming messages "
+                "will not arrive until subscription succeeds",
+                exc,
+            )
     return server

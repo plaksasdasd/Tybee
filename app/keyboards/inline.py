@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app import texts
-from app.db.models import FULFILLMENT_STATUSES, MysteryBox, Product
+from app.db.models import FULFILLMENT_STATUSES, MysteryBox, Product, SupportOperator
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -135,8 +135,35 @@ def admin_panel() -> InlineKeyboardMarkup:
     kb.button(text=texts.BTN_ADM_PRODUCTS, callback_data="adm:prod:list")
     kb.button(text=texts.BTN_ADM_BOXES, callback_data="adm:box:list")
     kb.button(text=texts.BTN_ADM_STATS, callback_data="adm:stats")
+    kb.button(text=texts.BTN_ADM_OPERATORS, callback_data="adm:ops")
     kb.button(text=texts.BTN_ADM_CLOSE, callback_data="adm:panel:close")
     kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_operators(operators: list[SupportOperator]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for operator in operators:
+        mark = "🟢" if operator.is_active else "🔴"
+        kb.button(
+            text=f"{mark} {operator.display_name} · {operator.telegram_id}",
+            callback_data=f"adm:ops:toggle:{operator.telegram_id}",
+        )
+    kb.button(text=texts.BTN_ADM_ADD_OPERATOR, callback_data="adm:ops:add")
+    kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def admin_operators_cancel() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_CANCEL, callback_data="adm:ops")
+    return kb.as_markup()
+
+
+def open_web_panel(url: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_ADM_OPEN_WEB_PANEL, url=url)
     return kb.as_markup()
 
 

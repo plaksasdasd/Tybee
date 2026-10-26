@@ -417,6 +417,26 @@ ADMIN_STATS = (
     "{by_status}"
 )
 
+ADMIN_OPERATORS_HEADER = (
+    "👥 <b>Операторы поддержки</b>\n\n"
+    "Добавьте сотрудника по Telegram ID или измените имя существующего. "
+    "Кнопка с именем включает/отключает доступ."
+)
+ADMIN_OPERATORS_EMPTY = "👥 Операторов пока нет. Добавьте первого кнопкой ниже."
+ADMIN_ADD_OPERATOR_PROMPT = (
+    "👤 <b>Добавление или изменение оператора</b>\n\n"
+    "Отправьте: <code>Telegram_ID публичное имя</code>\n"
+    "Например: <code>123456789 Мария</code>"
+)
+ADMIN_ADD_OPERATOR_BAD_FORMAT = (
+    "⚠️ Нужно: <code>Telegram_ID публичное имя</code>. "
+    "Имя — до 80 символов. Попробуйте ещё раз."
+)
+ADMIN_OPERATOR_SAVED = "✅ Оператор сохранён: <b>{name}</b> (<code>{id}</code>)"
+ADMIN_OPERATOR_SELF_DISABLE = "Нельзя отключить собственный доступ администратора."
+PANEL_NOT_CONFIGURED = "AVITO_WEBHOOK_URL не настроен — адрес веб-панели недоступен."
+PANEL_LINK = "🖥 <b>Веб-панель поддержки</b>\n\n{url}"
+
 ADMIN_ONLY = "Команда доступна только администраторам."
 
 # ---- Admin panel buttons ----
@@ -427,6 +447,9 @@ BTN_ADM_BOXES = "🎁 Mystery Box"
 BTN_ADM_ADD_BOX = "➕ Добавить бокс"
 BTN_ADM_BACK_BOXES = "⬅️ К боксам"
 BTN_ADM_STATS = "📊 Статистика"
+BTN_ADM_OPERATORS = "👥 Операторы"
+BTN_ADM_ADD_OPERATOR = "➕ Добавить / изменить имя"
+BTN_ADM_OPEN_WEB_PANEL = "🖥 Открыть веб-панель"
 BTN_ADM_CLOSE = "❎ Закрыть"
 BTN_ADM_BACK = "⬅️ Назад"
 BTN_ADM_BACK_LIST = "⬅️ К списку"

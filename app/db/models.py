@@ -134,6 +134,36 @@ class RelayMap(Base):
     user_id: Mapped[int] = mapped_column(BigInteger)
 
 
+class SupportOperator(Base):
+    __tablename__ = "support_operators"
+
+    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    display_name: Mapped[str] = mapped_column(String(80))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SupportMessage(Base):
+    __tablename__ = "support_messages"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    direction: Mapped[str] = mapped_column(String(16))
+    body: Mapped[str] = mapped_column(Text)
+    channel: Mapped[str] = mapped_column(String(16))
+    operator_telegram_id: Mapped[int | None] = mapped_column(BigInteger)
+    operator_name: Mapped[str | None] = mapped_column(String(80))
+    external_id: Mapped[str | None] = mapped_column(String(128), unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
 class AvitoWebhookEvent(Base):
     __tablename__ = "avito_webhook_events"
 

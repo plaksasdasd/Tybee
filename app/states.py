@@ -20,3 +20,5 @@ class UserState(str, Enum):
     ADMIN_IMPORT_PRODUCTS = "admin_import_products"
     # Admin is entering a new Mystery Box variant via the /admin panel.
     ADMIN_ADD_BOX = "admin_add_box"
+    # Admin is adding an operator or changing their public display name.
+    ADMIN_ADD_OPERATOR = "admin_add_operator"

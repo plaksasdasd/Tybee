@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import texts
 from app.db.models import User
-from app.handlers.admin_panel import process_new_box, process_new_product
+from app.handlers.admin_panel import process_new_box, process_new_operator, process_new_product
 from app.handlers.article import process_article
 from app.handlers.personal import process_personal
 from app.keyboards import inline
@@ -31,6 +31,10 @@ async def route_text(message: Message, bot: Bot, session: AsyncSession, user: Us
 
     if state == UserState.ADMIN_ADD_BOX.value:
         await process_new_box(message, session, user)
+        return
+
+    if state == UserState.ADMIN_ADD_OPERATOR.value:
+        await process_new_operator(message, session, user)
         return
 
     if state == UserState.ADMIN_IMPORT_PRODUCTS.value:
