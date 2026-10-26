@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import html
+
+from aiogram import Bot, F, Router
+from aiogram.types import CallbackQuery
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import repositories as repo
+from app import texts
+from app.assets import Banner
+from app.db.models import User
+from app.keyboards import inline
+from app.services.navigation import show_screen
+
+router = Router(name="profile")
+
+
+@router.callback_query(F.data == "profile:open")
+async def open_profile(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    orders_count = await repo.count_user_orders(session, user.id)
+    caption = texts.PROFILE.format(
+        name=repo.display_name(user) or "Клиент",
+        user_id=user.id,
+        orders_count=orders_count,
+    )
+    await show_screen(bot, session, user, Banner.PROFILE, caption, inline.profile_menu())
+    await call.answer()
+
+
+@router.callback_query(F.data == "profile:offer")
+async def show_offer(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    await show_screen(bot, session, user, Banner.PROFILE, texts.OFFER, inline.back_to_profile())
+    await call.answer()
+
+
+@router.callback_query(F.data == "profile:orders")
+async def show_orders(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    orders = await repo.list_orders(session, user.id)
+    if not orders:
+        await show_screen(
+            bot, session, user, Banner.PROFILE, texts.NO_ORDERS, inline.back_to_profile()
+        )
+        await call.answer()
+        return
+
+    lines = [texts.ORDERS_HEADER]
+    for order in orders:
+        title = html.escape(order.title or "Персональная заявка")
+        status = texts.STATUS_LABELS.get(order.status, order.status).capitalize()
+        price = f" — {order.price} ₽" if order.price else ""
+        lines.append(f"📦 <b>#{order.id}</b> {title}{price}\n    └ статус: {status}")
+    await show_screen(
+        bot, session, user, Banner.PROFILE, "\n".join(lines), inline.back_to_profile()
+    )
+    await call.answer()
