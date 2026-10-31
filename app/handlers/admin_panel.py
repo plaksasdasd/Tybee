@@ -1,9 +1,8 @@
-"""The /admin panel: catalog, service stats, and support-operator management.
+"""The /admin panel: catalog and service stats.
 
 Available only to admins in a private chat. The panel is a single editable
 message navigated via inline callbacks (``adm:...``). Free-form additions are
-parsed from the admin's next message via the text router. /panel gives staff
-the public web-panel URL.
+parsed from the admin's next message via the text router.
 """
 from __future__ import annotations
 
@@ -20,12 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repositories as repo
 from app import texts
-from app.config import get_settings
-from app.db.base import AVITO_ID_BASE
 from app.db.models import MysteryBox, Order, Product, User
 from app.handlers.article import ARTICLE_RE
 from app.keyboards import inline
-from app.services import support
 from app.states import UserState
 
 logger = logging.getLogger(__name__)
@@ -87,8 +83,7 @@ async def _render_products(call: CallbackQuery, session: AsyncSession, page: int
     if not products:
         await _safe_edit(call, texts.ADMIN_PRODUCTS_EMPTY, inline.admin_products(products, page=0))
         return
-    per_page = 10
-    total_pages = (len(products) + per_page - 1) // per_page or 1
+    total_pages = (len(products) + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE or 1
     page = max(0, min(page, total_pages - 1))
     text = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
     text += f"\nСтр. {page + 1}/{total_pages}"
@@ -112,32 +107,6 @@ async def open_admin(message: Message, session: AsyncSession, user: User) -> Non
         return
     await repo.set_state(session, user, UserState.MENU)
     await message.answer(texts.ADMIN_PANEL, reply_markup=inline.admin_panel())
-
-
-@router.message(Command("panel"), F.chat.type == "private")
-async def open_web_panel(message: Message, session: AsyncSession, user: User) -> None:
-    staff = await support.get_staff(session, user.id)
-    if staff is None:
-        await message.answer(texts.ADMIN_ONLY)
-        return
-    settings = get_settings()
-    if not settings.web_panel_enabled:
-        await message.answer("Веб-панель отключена настройкой WEB_PANEL_ENABLED.")
-        return
-    url = settings.avito_webhook_url.rstrip("/") + "/" if settings.avito_webhook_url else ""
-    if not url:
-        await message.answer(texts.PANEL_NOT_CONFIGURED)
-        return
-    await message.answer(
-        texts.PANEL_LINK.format(url=html.escape(url)),
-        reply_markup=inline.open_web_panel(url),
-    )
-
-
-async def _render_operators(call: CallbackQuery, session: AsyncSession) -> None:
-    operators = await repo.list_support_operators(session)
-    text = texts.ADMIN_OPERATORS_HEADER if operators else texts.ADMIN_OPERATORS_EMPTY
-    await _safe_edit(call, text, inline.admin_operators(operators))
 
 
 @router.callback_query(F.data == "adm:panel:open")
@@ -319,74 +288,6 @@ async def stats(call: CallbackQuery, session: AsyncSession, user: User) -> None:
     await call.answer()
 
 
-@router.callback_query(F.data == "adm:ops")
-async def operators_list(call: CallbackQuery, session: AsyncSession, user: User) -> None:
-    if not repo.is_admin(user):
-        return await _deny(call)
-    await repo.set_state(session, user, UserState.MENU)
-    await _render_operators(call, session)
-    await call.answer()
-
-
-@router.callback_query(F.data == "adm:ops:add")
-async def operator_add(call: CallbackQuery, session: AsyncSession, user: User) -> None:
-    if not repo.is_admin(user):
-        return await _deny(call)
-    await repo.set_state(session, user, UserState.ADMIN_ADD_OPERATOR)
-    await _safe_edit(call, texts.ADMIN_ADD_OPERATOR_PROMPT, inline.admin_operators_cancel())
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("adm:ops:toggle:"))
-async def operator_toggle(call: CallbackQuery, session: AsyncSession, user: User) -> None:
-    if not repo.is_admin(user):
-        return await _deny(call)
-    operator = await repo.get_support_operator(session, int(call.data.split(":")[3]))
-    if operator is None:
-        await call.answer("Оператор не найден", show_alert=True)
-        return
-    if operator.telegram_id == user.id and operator.is_active:
-        await call.answer(texts.ADMIN_OPERATOR_SELF_DISABLE, show_alert=True)
-        return
-    operator.is_active = not operator.is_active
-    await _render_operators(call, session)
-    await call.answer("Доступ включён" if operator.is_active else "Доступ отключён")
-
-
-async def process_new_operator(message: Message, session: AsyncSession, user: User) -> None:
-    raw = (message.text or "").strip()
-    telegram_id_raw, _, name = raw.partition(" ")
-    name = name.strip()
-    if (
-        not telegram_id_raw.isdigit()
-        or not 0 < int(telegram_id_raw) < AVITO_ID_BASE
-        or not name
-        or len(name) > 80
-    ):
-        await message.answer(
-            texts.ADMIN_ADD_OPERATOR_BAD_FORMAT,
-            reply_markup=inline.admin_operators_cancel(),
-        )
-        return
-    telegram_id = int(telegram_id_raw)
-    existing = await repo.get_support_operator(session, telegram_id)
-    operator = await repo.save_support_operator(
-        session,
-        telegram_id,
-        name,
-        is_active=existing.is_active if existing is not None else True,
-    )
-    await repo.set_state(session, user, UserState.MENU)
-    await message.answer(
-        texts.ADMIN_OPERATOR_SAVED.format(name=html.escape(name), id=telegram_id)
-    )
-    operators = await repo.list_support_operators(session)
-    await message.answer(
-        texts.ADMIN_OPERATORS_HEADER,
-        reply_markup=inline.admin_operators(operators),
-    )
-
-
 async def process_new_product(message: Message, session: AsyncSession, user: User) -> None:
     """Create a catalog article from an admin message.
 
@@ -423,8 +324,8 @@ async def process_new_product(message: Message, session: AsyncSession, user: Use
     products = await repo.list_products(session)
     # Show paginated list (page 0) — important when catalog is large (>10)
     header = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
-    if len(products) > 10:
-        header += f"\nСтр. 1/{(len(products) + 10 - 1)//10}"
+    if len(products) > PRODUCTS_PER_PAGE:
+        header += f"\nСтр. 1/{(len(products) + PRODUCTS_PER_PAGE - 1)//PRODUCTS_PER_PAGE}"
     await message.answer(
         header,
         reply_markup=inline.admin_products(products, page=0),
@@ -475,14 +376,6 @@ def _norm_article(value: object | None) -> str:
     # Remove spaces
     s = s.replace(" ", "").replace("'", "")
     return s
-
-
-def _is_header_row(article: str, title: str, price: str) -> bool:
-    a = article.strip().lower()
-    t = title.strip().lower()
-    p = price.strip().lower()
-    headers = {"артикул", "article", "код", "id", "название", "title", "цена", "price", "стоимость"}
-    return a in headers or t in headers or p in headers
 
 
 @router.message(F.document, F.chat.type == "private")
@@ -713,8 +606,8 @@ async def process_import_document(
     )
     products = await repo.list_products(session)
     header = texts.ADMIN_PRODUCTS_HEADER.format(count=len(products))
-    if len(products) > 10:
-        header += f"\nСтр. 1/{(len(products) + 10 - 1)//10}"
+    if len(products) > PRODUCTS_PER_PAGE:
+        header += f"\nСтр. 1/{(len(products) + PRODUCTS_PER_PAGE - 1)//PRODUCTS_PER_PAGE}"
     await message.answer(
         header,
         reply_markup=inline.admin_products(products, page=0),

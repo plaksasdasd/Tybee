@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -23,7 +23,6 @@ class OrderStatus(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     IN_DIALOG = "in_dialog"
-    # Fulfillment statuses managed by support via inline buttons in the client's shared thread.
     ACCEPTED = "accepted"
     BOUGHT = "bought"
     SHIPPING_TO_RU = "shipping_to_ru"
@@ -33,23 +32,9 @@ class OrderStatus(str, Enum):
     RECEIVED = "received"
 
 
-# Ordered list of fulfillment statuses shown as the support control panel.
-FULFILLMENT_STATUSES: tuple[OrderStatus, ...] = (
-    OrderStatus.ACCEPTED,
-    OrderStatus.BOUGHT,
-    OrderStatus.SHIPPING_TO_RU,
-    OrderStatus.CUSTOMS,
-    OrderStatus.SHIPPING_IN_RU,
-    OrderStatus.AWAITING_PICKUP,
-    OrderStatus.RECEIVED,
-)
-
-
 class User(Base):
     __tablename__ = "users"
 
-    # Telegram clients use their Telegram id. Avito clients use a synthetic id
-    # (AVITO_ID_BASE + avito user id) so the two id spaces never collide.
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     username: Mapped[str | None] = mapped_column(String(64))
     full_name: Mapped[str] = mapped_column(String(256), default="")
@@ -59,10 +44,6 @@ class User(Base):
     # The single "screen" message we keep editing instead of deleting/resending.
     screen_message_id: Mapped[int | None] = mapped_column(BigInteger)
     current_order_id: Mapped[int | None] = mapped_column(BigInteger)
-    # Shared forum topic id for all support messages and orders of this client.
-    support_thread_id: Mapped[int | None] = mapped_column(BigInteger)
-    # "telegram" (default) or "avito". Avito clients have no Telegram chat —
-    # outgoing messages go through the Avito Messenger API instead.
     source: Mapped[str] = mapped_column(String(16), default="telegram")
     avito_user_id: Mapped[int | None] = mapped_column(BigInteger)
     avito_chat_id: Mapped[str | None] = mapped_column(String(64))
@@ -124,50 +105,49 @@ class MediaCache(Base):
     file_id: Mapped[str] = mapped_column(String(256))
 
 
-class RelayMap(Base):
-    """Maps a message the bot posted in the support chat back to the user, so an
-    admin reply (a Telegram reply) can be routed to the right customer."""
+class SupportConversation(Base):
+    __tablename__ = "support_conversations"
 
-    __tablename__ = "relay_map"
-
-    support_message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger)
-
-
-class SupportOperator(Base):
-    __tablename__ = "support_operators"
-
-    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
-    display_name: Mapped[str] = mapped_column(String(80))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    channel: Mapped[str] = mapped_column(String(16), default="telegram")
+    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
 
-class SupportMessage(Base):
-    __tablename__ = "support_messages"
+class SupportInbox(Base):
+    __tablename__ = "support_inbox"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    conversation_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("support_conversations.id"), index=True
+    )
+    order_id: Mapped[int | None] = mapped_column(BigInteger)
+    kind: Mapped[str] = mapped_column(String(24), default="message")
+    body: Mapped[str] = mapped_column(Text)
+    external_id: Mapped[str | None] = mapped_column(String(160), unique=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SupportOutbox(Base):
+    __tablename__ = "support_outbox"
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
     )
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
-    direction: Mapped[str] = mapped_column(String(16))
+    order_id: Mapped[int | None] = mapped_column(BigInteger)
+    kind: Mapped[str] = mapped_column(String(24), default="text")
     body: Mapped[str] = mapped_column(Text)
-    channel: Mapped[str] = mapped_column(String(16))
-    operator_telegram_id: Mapped[int | None] = mapped_column(BigInteger)
-    operator_name: Mapped[str | None] = mapped_column(String(80))
-    external_id: Mapped[str | None] = mapped_column(String(128), unique=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), index=True
-    )
-
-
-class AvitoWebhookEvent(Base):
-    __tablename__ = "avito_webhook_events"
-
-    message_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    payload: Mapped[dict] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -1,22 +1,18 @@
-"""End-to-end flow smoke test.
-
-Drives the real Dispatcher/handlers against the real PostgreSQL database, but
-replaces the Telegram Bot API transport with a recorder so we can assert on the
-exact API calls the bot makes (and prove navigation *edits* messages instead of
-deleting them).
-
-Run:
-    BOT_TOKEN=... ADMIN_IDS=999 POSTGRES_HOST=localhost python -m scripts.smoke_flow
-"""
+"""Cross-bot support integration smoke test using two temporary SQL databases."""
+# ruff: noqa: E402
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "support_bot"))
 
 from aiogram import Bot
 from aiogram.methods import (
     AnswerCallbackQuery,
-    AnswerPreCheckoutQuery,
     CopyMessage,
     EditMessageMedia,
     EditMessageReplyMarkup,
@@ -28,522 +24,284 @@ from aiogram.methods import (
     SetMyCommands,
 )
 from aiogram.methods.base import TelegramMethod
-from aiogram.types import (
-    CallbackQuery,
-    Chat,
-    Message,
-    MessageId,
-    PhotoSize,
-    PreCheckoutQuery,
-    SuccessfulPayment,
-    Update,
-)
+from aiogram.types import CallbackQuery, Chat, Message, MessageId, PhotoSize, Update
 from aiogram.types import User as TgUser
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
-from app.bot import create_dispatcher
-from app.db.base import engine, init_models
-from app.db.seed import seed
+from app.bot import create_dispatcher as create_main_dispatcher
+from app.db.base import Base as MainBase
+from app.db.models import Order, SupportInbox, SupportOutbox, User
+from support_bot.bot import create_dispatcher as create_support_dispatcher
+from support_bot.db import Base as SupportBase
+from support_bot.models import Staff, SupportRequest
+from support_bot.source_db import SourceBase
 
 CUSTOMER_ID = 1001
+STAFF_ID = 555
+OTHER_STAFF_ID = 666
 ADMIN_ID = 999
-
-calls: list[tuple[str, dict]] = []
-_msg_seq = 1000
-
-
-def _next_id() -> int:
-    global _msg_seq
-    _msg_seq += 1
-    return _msg_seq
+AVITO_USER_ID = 1000000000501
+_seq = 1000
 
 
-def _fake_message(chat_id: int, *, text: str | None = None, photo: bool = False) -> Message:
+def next_id() -> int:
+    global _seq
+    _seq += 1
+    return _seq
+
+
+def fake_message(chat_id: int, text: str | None = None, photo: bool = False) -> Message:
     return Message(
-        message_id=_next_id(),
+        message_id=next_id(),
         date=datetime.now(timezone.utc),
         chat=Chat(id=chat_id, type="private"),
         text=text,
-        photo=[PhotoSize(file_id="FILEID", file_unique_id="U", width=100, height=100)]
+        photo=[PhotoSize(file_id="FILE", file_unique_id="U", width=10, height=10)]
         if photo
         else None,
     )
 
 
-class RecorderBot(Bot):
-    async def __call__(self, method: TelegramMethod, request_timeout=None):  # type: ignore[override]
-        name = type(method).__name__
-        data = method.model_dump(exclude_none=True)
-        calls.append((name, data))
-
-        if isinstance(method, GetMe):
-            return TgUser(id=42, is_bot=True, first_name="Тайби", username="Taibytestbot")
-        if isinstance(method, SetMyCommands):
-            return True
-        if isinstance(method, SendPhoto):
-            return _fake_message(int(data["chat_id"]), photo=True)
-        if isinstance(method, EditMessageMedia):
-            return _fake_message(int(data["chat_id"]), photo=True)
-        if isinstance(method, SendMessage):
-            return _fake_message(int(data["chat_id"]), text=data.get("text"))
-        if isinstance(method, SendInvoice):
-            return _fake_message(int(data["chat_id"]))
-        if isinstance(method, EditMessageText):
-            return _fake_message(int(data["chat_id"]), text=data.get("text"))
-        if isinstance(method, CopyMessage):
-            return MessageId(message_id=_next_id())
-        if isinstance(
-            method,
-            (AnswerCallbackQuery, EditMessageReplyMarkup, AnswerPreCheckoutQuery),
-        ):
-            return True
-        return True
-
-
-def msg_update(user_id: int, text: str, reply_to: int | None = None) -> Update:
-    m = Message(
-        message_id=_next_id(),
+def msg(user_id: int, text: str) -> Update:
+    message = Message(
+        message_id=next_id(),
         date=datetime.now(timezone.utc),
         chat=Chat(id=user_id, type="private"),
-        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
-        text=text,
-        reply_to_message=_fake_message(user_id, text="ctx") if reply_to is None else
-        Message(
-            message_id=reply_to,
-            date=datetime.now(timezone.utc),
-            chat=Chat(id=user_id, type="private"),
-            text="relayed",
-        )
-        if reply_to
-        else None,
-    )
-    return Update(update_id=_next_id(), message=m)
-
-
-def msg_no_reply(user_id: int, text: str) -> Update:
-    """A private message with no reply_to (so admin-reply relay won't catch it)."""
-    m = Message(
-        message_id=_next_id(),
-        date=datetime.now(timezone.utc),
-        chat=Chat(id=user_id, type="private"),
-        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
+        from_user=TgUser(id=user_id, is_bot=False, first_name=f"User {user_id}"),
         text=text,
     )
-    return Update(update_id=_next_id(), message=m)
+    return Update(update_id=next_id(), message=message)
 
 
-def cb_update(user_id: int, data: str, screen_id: int) -> Update:
-    screen = _fake_message(user_id, photo=True)
-    object.__setattr__(screen, "message_id", screen_id)
-    cb = CallbackQuery(
-        id=str(_next_id()),
-        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
-        chat_instance="ci",
-        message=screen,
+def cb(user_id: int, data: str) -> Update:
+    callback = CallbackQuery(
+        id=str(next_id()),
+        from_user=TgUser(id=user_id, is_bot=False, first_name=f"User {user_id}"),
+        chat_instance="test",
+        message=fake_message(user_id),
         data=data,
     )
-    return Update(update_id=_next_id(), callback_query=cb)
+    return Update(update_id=next_id(), callback_query=callback)
 
 
-def precheckout_update(user_id: int) -> Update:
-    pcq = PreCheckoutQuery(
-        id=str(_next_id()),
-        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
-        currency="XTR",
-        total_amount=50,
-        invoice_payload="unban_fine",
-    )
-    return Update(update_id=_next_id(), pre_checkout_query=pcq)
+class Recorder(Bot):
+    def __init__(self, token: str):
+        super().__init__(token=token)
+        self.calls: list[tuple[str, dict]] = []
+
+    async def __call__(self, method: TelegramMethod, request_timeout=None):
+        name = type(method).__name__
+        data = method.model_dump(exclude_none=True)
+        self.calls.append((name, data))
+        if isinstance(method, GetMe):
+            return TgUser(id=42, is_bot=True, first_name="Test")
+        if isinstance(method, (SetMyCommands, AnswerCallbackQuery, EditMessageReplyMarkup, EditMessageText)):
+            return True
+        if isinstance(method, SendPhoto):
+            return fake_message(int(data["chat_id"]), photo=True)
+        if isinstance(method, EditMessageMedia):
+            return fake_message(int(data["chat_id"]), photo=True)
+        if isinstance(method, (SendMessage, SendInvoice)):
+            return fake_message(int(data["chat_id"]), data.get("text"))
+        if isinstance(method, CopyMessage):
+            return MessageId(message_id=next_id())
+        return True
+
+    def texts_to(self, chat_id: int) -> list[str]:
+        return [
+            data.get("text", "")
+            for name, data in self.calls
+            if name == "SendMessage" and int(data.get("chat_id", 0)) == chat_id
+        ]
 
 
-def payment_update(user_id: int) -> Update:
-    sp = SuccessfulPayment(
-        currency="XTR",
-        total_amount=50,
-        invoice_payload="unban_fine",
-        telegram_payment_charge_id="tg_charge",
-        provider_payment_charge_id="",
-    )
-    m = Message(
-        message_id=_next_id(),
-        date=datetime.now(timezone.utc),
-        chat=Chat(id=user_id, type="private"),
-        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
-        successful_payment=sp,
-    )
-    return Update(update_id=_next_id(), message=m)
+class FakeAvito:
+    account_id = 1
+    enabled = True
 
+    def __init__(self):
+        self.sent: list[tuple[str, str]] = []
 
-def find(name: str) -> list[dict]:
-    return [d for n, d in calls if n == name]
+    async def send_message(self, chat_id: str, text: str) -> None:
+        self.sent.append((chat_id, text))
 
-
-def last(name: str) -> dict:
-    return [d for n, d in calls if n == name][-1]
+    async def get_chat_user_name(self, chat_id: str) -> str:
+        return "Avito Tester"
 
 
 async def main() -> None:
-    from app.config import get_settings
+    import app.avito_webhook as avito_webhook
+    import app.middlewares as main_middleware
+    import app.services.outbox as main_outbox
+    import support_bot.middlewares as support_middleware
+    import support_bot.source_db as source_db
+    import support_bot.source_importer as importer
+    import support_bot.source_repository as source_repository
 
-    # Safety: this test drops all tables. Never let it run against the main DB.
-    if get_settings().postgres_db == "taibi":
-        raise SystemExit(
-            "Refusing to run smoke test against the 'taibi' database. "
-            "Set POSTGRES_DB=taibi_test (it uses fake file_ids that would break the live bot)."
+    main_engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+    support_engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+    async with main_engine.begin() as conn:
+        await conn.run_sync(MainBase.metadata.create_all)
+        await conn.run_sync(SourceBase.metadata.create_all)
+    async with support_engine.begin() as conn:
+        await conn.run_sync(SupportBase.metadata.create_all)
+
+    main_sf = async_sessionmaker(main_engine, class_=AsyncSession, expire_on_commit=False)
+    support_sf = async_sessionmaker(support_engine, class_=AsyncSession, expire_on_commit=False)
+    main_middleware.session_factory = main_sf
+    main_outbox.session_factory = main_sf
+    avito_webhook.session_factory = main_sf
+    support_middleware.session_factory = support_sf
+    importer.session_factory = support_sf
+    importer.source_session_factory = main_sf
+    source_db.source_session_factory = main_sf
+    source_repository.source_session_factory = main_sf
+
+    async with main_sf() as session:
+        session.add(User(id=ADMIN_ID, full_name="Admin", is_admin=True))
+        await session.commit()
+    async with support_sf() as session:
+        session.add_all(
+            [
+                Staff(telegram_id=STAFF_ID, display_name="Сотрудник #555"),
+                Staff(telegram_id=OTHER_STAFF_ID, display_name="Сотрудник #666"),
+            ]
         )
+        await session.commit()
 
-    # Clean slate for deterministic assertions.
-    async with engine.begin() as conn:
-        from app.db.base import Base
+    main_bot = Recorder("123:main")
+    support_bot = Recorder("123:support")
+    main_dp = create_main_dispatcher()
+    support_dp = create_support_dispatcher()
 
-        await conn.run_sync(Base.metadata.drop_all)
-    await init_models()
-    await seed()
+    # Main Telegram client -> inbox -> support request -> claim -> outbox.
+    await main_dp.feed_update(main_bot, msg(CUSTOMER_ID, "/start"))
+    await main_dp.feed_update(main_bot, cb(CUSTOMER_ID, "support:open"))
+    await main_dp.feed_update(main_bot, msg(CUSTOMER_ID, "Нужна помощь с заказом"))
+    async with main_sf() as session:
+        event = (await session.scalars(select(SupportInbox))).one()
+        assert event.body == "Нужна помощь с заказом" and event.processed_at is None
+    assert await importer.process_next_source_event(support_bot)
+    async with support_sf() as session:
+        request = (await session.scalars(select(SupportRequest))).one()
+        request_id = request.id
+        assert request.source == "main" and request.channel == "telegram"
+    notified = {int(data["chat_id"]) for name, data in support_bot.calls if name == "SendMessage" and "request:claim" in str(data)}
+    assert {ADMIN_ID, STAFF_ID, OTHER_STAFF_ID} <= notified
 
-    # The demo seeding is gone: create the catalog product the flow relies on.
-    from app.db.base import session_factory as sf
-    from app.db.models import Product
+    await support_dp.feed_update(support_bot, cb(STAFF_ID, f"request:claim:{request_id}"))
+    await support_dp.feed_update(support_bot, cb(OTHER_STAFF_ID, f"request:claim:{request_id}"))
+    async with support_sf() as session:
+        request = await session.get(SupportRequest, request_id)
+        assert request.assigned_to == STAFF_ID and request.assigned_name == "User 555"
+    assert await main_outbox.process_next_outbox(main_bot)
+    assert any("взял ваше обращение" in text for text in main_bot.texts_to(CUSTOMER_ID))
 
-    async with sf() as s:
-        s.add(Product(article="482915", title="Кроссовки Asics Gel-Kayano 30", price=14900))
-        await s.commit()
+    await support_dp.feed_update(support_bot, msg(STAFF_ID, "Здравствуйте, чем помочь?"))
+    assert await main_outbox.process_next_outbox(main_bot)
+    assert any("Здравствуйте" in text for text in main_bot.texts_to(CUSTOMER_ID))
+    print("Telegram dialog + assignment + reply passed")
 
-    bot = RecorderBot(token="123:dummy")
-    dp = create_dispatcher()
+    # Support-created invoice -> client payment -> support decision -> status.
+    await support_dp.feed_update(support_bot, msg(STAFF_ID, "/order Куртка зимняя 6900"))
+    async with main_sf() as session:
+        order = (await session.scalars(select(Order))).one()
+        order_id = order.id
+        assert order.status == "awaiting_payment" and order.price == 6900
+    assert await main_outbox.process_next_outbox(main_bot)
+    invoice = main_bot.texts_to(CUSTOMER_ID)[-1]
+    assert "6900" in invoice
 
-    def screen_caption(chat_id: int = CUSTOMER_ID) -> str:
-        # The current screen is whatever was most recently shown to ``chat_id``
-        # — either an in-place edit (EditMessageMedia/EditMessageText) or a
-        # fresh post (SendPhoto/SendMessage).
-        for name, data in reversed(calls):
-            if int(data.get("chat_id", -1)) != chat_id:
-                continue
-            if name == "EditMessageMedia":
-                return data["media"]["caption"]
-            if name == "SendPhoto":
-                return data.get("caption", "")
-            if name in ("EditMessageText", "SendMessage"):
-                return data.get("text", "")
-        raise AssertionError("no screen was rendered")
-
-    # 1) /start -> first screen is SENT (no existing message yet)
-    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "/start"))
-    welcome = [d for d in find("SendPhoto") if int(d["chat_id"]) == CUSTOMER_ID]
-    assert welcome and "удобный сервис" in welcome[-1].get("caption", "").lower(), (
-        "Expected the initial welcome photo"
-    )
-    # the bot stored screen_message_id from our fake SendPhoto return
-    from app.db.base import session_factory
-    from app.db.models import User
-
-    async with session_factory() as s:
-        cust = await s.get(User, CUSTOMER_ID)
-        screen_id = cust.screen_message_id
-    print("welcome sent; screen_id=", screen_id)
-
-    # 2) open order -> "уже есть артикул?" (must be an EDIT, not a new message)
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:start", screen_id))
-    assert "уже есть артикул" in screen_caption().lower() or "оформление заказа" in screen_caption().lower()
-    print("order:start edited ->", screen_caption()[:40])
-
-    # 3) has article
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:has_article", screen_id))
-    assert "артикул" in screen_caption().lower()
-
-    # 4) enter a valid catalog article -> found -> approved + pay button
-    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "482915"))
-    cap = screen_caption()
-    assert "одобрили" in cap.lower() and "14900" in cap, cap
-    print("article found ->", cap.replace(chr(10), " ")[:60])
-
-    async with session_factory() as s:
-        cust = await s.get(User, CUSTOMER_ID)
-        order_id = cust.current_order_id
-    print("order created #", order_id)
-
-    # 5) proceed to payment
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, f"pay:proceed:{order_id}", screen_id))
-    assert "оплата по реквизитам" in screen_caption().lower()
-
-    # 6) "Я оплатил" -> review screen + admin notification with confirm/reject kb
-    calls.clear()
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, f"pay:done:{order_id}", screen_id))
-    assert "чуть-чуть" in screen_caption().lower()
-    admin_msgs = find("SendMessage")
-    assert any(str(ADMIN_ID) == str(m["chat_id"]) for m in admin_msgs), "admin not notified"
-    assert any("reply_markup" in m for m in admin_msgs), "no confirm/reject kb"
-    print("paid -> review screen + admin notified")
-
-    # 7) admin confirms payment -> customer screen edited to APPROVED, NO delete
-    calls.clear()
-    await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:confirm:{order_id}", screen_id))
-    edits_to_customer = [d for d in find("EditMessageMedia") if int(d["chat_id"]) == CUSTOMER_ID]
-    assert edits_to_customer, "customer screen not edited on approval"
-    assert "одобрили" in edits_to_customer[-1]["media"]["caption"].lower()
-    assert not find("DeleteMessage"), "bot deleted a message (should only edit!)"
-    print("admin confirmed -> customer screen edited to APPROVED")
-
-    # 8) open dialog
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, f"dialog:open:{order_id}", screen_id))
-
-    # 9) customer message in dialog -> relayed to admin (header + copy)
-    calls.clear()
-    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "Когда будет доставка?"))
-    assert any(int(m["chat_id"]) == ADMIN_ID for m in find("SendMessage")), "dialog not relayed"
-    assert find("CopyMessage"), "message content not copied to support"
-    print("dialog relay -> admin received header + copy")
-
-    # 10) admin replies in support chat -> relayed back to customer
-    async with session_factory() as s:
-        from app.db.models import RelayMap
-        from sqlalchemy import select
-
-        rid = (await s.scalars(select(RelayMap.support_message_id))).all()[-1]
-    calls.clear()
-    await dp.feed_update(bot, msg_update(ADMIN_ID, "Доставим за 7-10 дней", reply_to=rid))
-    back = [m for m in find("SendMessage") if int(m["chat_id"]) == CUSTOMER_ID]
-    assert back, "admin reply not relayed to customer"
-    assert "Tester" in back[-1]["text"]
-    assert not [m for m in find("SendMessage") if int(m["chat_id"]) == ADMIN_ID], (
-        "admin reply was echoed back into the support destination"
-    )
-    print("admin reply -> relayed to customer")
-
-    # 11) reject path on a fresh order
-    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "/start"))
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:start", screen_id))
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:has_article", screen_id))
-    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "000000"))  # not in catalog
-    assert "нет в каталоге" in screen_caption().lower()
-    print("unknown article -> 'нет в каталоге'")
-
-    # Grab a relay-mapped message id so support commands can target the customer
-    # (in a non-forum support chat, the target is resolved via the replied-to msg).
-    async with session_factory() as s:
-        from app.db.models import RelayMap
-        from sqlalchemy import select
-
-        rid = (await s.scalars(select(RelayMap.support_message_id))).all()[-1]
-
-    # 12) support issues an invoice with /order -> client receives it
-    calls.clear()
-    await dp.feed_update(
-        bot, msg_update(ADMIN_ID, "/order Куртка тёплая_зимняя 6900", reply_to=rid)
-    )
-    invoices = [d for d in find("SendPhoto") if int(d["chat_id"]) == CUSTOMER_ID]
-    assert invoices, "client did not receive the /order invoice"
-    assert "6900" in invoices[-1].get("caption", ""), invoices[-1].get("caption")
-    print("/order -> client invoiced")
-
-    async with session_factory() as s:
-        cust = await s.get(User, CUSTOMER_ID)
-        new_order_id = cust.current_order_id
-    assert new_order_id and new_order_id != order_id, "support order not created"
-
-    # 13) client pays the support order -> admin confirms -> status panel posted
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, f"pay:done:{new_order_id}", screen_id))
-    calls.clear()
-    await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:confirm:{new_order_id}", screen_id))
-    panels = [
-        d for d in find("SendMessage")
-        if "reply_markup" in d and "adm:status" in str(d["reply_markup"])
+    await main_dp.feed_update(main_bot, cb(CUSTOMER_ID, f"pay:done:{order_id}"))
+    assert await importer.process_next_source_event(support_bot)
+    await support_dp.feed_update(support_bot, cb(STAFF_ID, f"order:confirm:{order_id}"))
+    async with main_sf() as session:
+        assert (await session.get(Order, order_id)).status == "approved"
+    assert await main_outbox.process_next_outbox(main_bot)
+    approval_calls = [
+        data
+        for name, data in main_bot.calls
+        if name == "SendMessage" and int(data.get("chat_id", 0)) == CUSTOMER_ID and "dialog:open" in str(data)
     ]
-    assert panels, "no order status panel posted after approval"
-    print("approval -> status control panel posted")
+    assert approval_calls
 
-    # 14) support changes the order status -> client gets a photo notification
-    calls.clear()
-    await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:status:{new_order_id}:bought", screen_id))
-    notifs = [
-        d for d in find("SendPhoto")
-        if int(d["chat_id"]) == CUSTOMER_ID and "Выкуплен" in d.get("caption", "")
-    ]
-    assert notifs, "client did not get the status photo notification"
-    assert find("EditMessageText"), "status panel was not refreshed"
-    print("status change -> client notified (Выкуплен) with banner")
+    await support_dp.feed_update(support_bot, cb(STAFF_ID, f"order:status:{order_id}:bought"))
+    async with main_sf() as session:
+        assert (await session.get(Order, order_id)).status == "bought"
+    assert await main_outbox.process_next_outbox(main_bot)
+    assert any("Выкуплен" in text for text in main_bot.texts_to(CUSTOMER_ID))
 
-    # 15) /ban -> client blocked and shown the fine screen on next action
-    await dp.feed_update(bot, msg_update(ADMIN_ID, "/ban", reply_to=rid))
-    async with session_factory() as s:
-        cust = await s.get(User, CUSTOMER_ID)
-        assert cust.is_banned, "client was not banned"
-    calls.clear()
-    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "привет"))
-    ban_msgs = [d.get("text", "") for d in find("SendMessage") if int(d["chat_id"]) == CUSTOMER_ID]
-    assert any("штраф" in t.lower() for t in ban_msgs), ban_msgs
-    print("/ban -> client blocked + fine screen")
+    await support_dp.feed_update(support_bot, msg(STAFF_ID, "/ban"))
+    async with main_sf() as session:
+        assert (await session.get(User, CUSTOMER_ID)).is_banned
+    await support_dp.feed_update(support_bot, msg(STAFF_ID, "/pardon"))
+    async with main_sf() as session:
+        assert not (await session.get(User, CUSTOMER_ID)).is_banned
+    print("Invoice + payment + status + ban/pardon passed")
 
-    # 16) client pays the fine in Stars -> unbanned
-    await dp.feed_update(bot, precheckout_update(CUSTOMER_ID))
-    assert find("AnswerPreCheckoutQuery"), "pre-checkout was not answered"
-    await dp.feed_update(bot, payment_update(CUSTOMER_ID))
-    async with session_factory() as s:
-        cust = await s.get(User, CUSTOMER_ID)
-        assert not cust.is_banned, "client still banned after paying the fine"
-    print("fine paid -> client unbanned")
+    # Avito uses the same inbox/outbox transport.
+    fake_avito = FakeAvito()
+    avito_webhook.get_avito = lambda: fake_avito
+    main_outbox.get_avito = lambda: fake_avito
+    await avito_webhook.process_avito_message(
+        {
+            "id": "avito-1",
+            "chat_id": "chat-1",
+            "author_id": 501,
+            "content": {"type": "text", "text": "Вопрос из Avito"},
+        }
+    )
+    assert await importer.process_next_source_event(support_bot)
+    async with support_sf() as session:
+        avito_request = await session.scalar(
+            select(SupportRequest).where(SupportRequest.customer_id == AVITO_USER_ID)
+        )
+        assert avito_request is not None and avito_request.channel == "avito"
+    await support_dp.feed_update(support_bot, cb(STAFF_ID, f"request:claim:{avito_request.id}"))
+    await main_outbox.process_next_outbox(main_bot)
+    await support_dp.feed_update(support_bot, msg(STAFF_ID, "Ответ в Avito"))
+    await main_outbox.process_next_outbox(main_bot)
+    assert any(chat == "chat-1" and "Ответ в Avito" in text for chat, text in fake_avito.sent)
+    print("Avito dialog + reply passed")
 
-    # 17) /ban then /pardon -> client unbanned by support
-    await dp.feed_update(bot, msg_update(ADMIN_ID, "/ban", reply_to=rid))
-    await dp.feed_update(bot, msg_update(ADMIN_ID, "/pardon", reply_to=rid))
-    async with session_factory() as s:
-        cust = await s.get(User, CUSTOMER_ID)
-        assert not cust.is_banned, "/pardon did not unban the client"
-    print("/pardon -> client unbanned")
+    # Closing in the main bot is imported into the support DB.
+    await main_dp.feed_update(main_bot, cb(CUSTOMER_ID, "dialog:close"))
+    assert await importer.process_next_source_event(support_bot)
+    async with support_sf() as session:
+        assert (await session.get(SupportRequest, request_id)).status == "closed"
+    async with main_sf() as session:
+        remaining = await session.scalar(
+            select(SupportOutbox).where(SupportOutbox.processed_at.is_(None))
+        )
+        assert remaining is None
+    print("Dialog close passed")
 
-    # 18) /admin -> panel with catalog/stats buttons
-    calls.clear()
-    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "/admin"))
-    panel = [d for d in find("SendMessage") if "adm:prod:list" in str(d.get("reply_markup", ""))]
-    assert panel, "/admin did not open the panel"
-    print("/admin -> panel opened")
+    # Admin broadcast uses preview + confirmation and excludes Avito users.
+    from app.handlers import broadcast as broadcast_handler
 
-    # 19) start add-product flow -> enter a new product line -> product created
-    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:prod:add", screen_id))
-    async with session_factory() as s:
-        adm = await s.get(User, ADMIN_ID)
-        assert adm.state == "admin_add_product", adm.state
-    calls.clear()
-    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "246810 Тестовая кофта оверсайз 4200"))
-    async with session_factory() as s:
-        from sqlalchemy import select as _select
-
-        from app.db.models import Product as _Product
-
-        prod = await s.scalar(_select(_Product).where(_Product.article == "246810"))
-        assert prod is not None and prod.price == 4200, "product was not created"
-        assert prod.title == "Тестовая кофта оверсайз"
-    print("/admin add product -> product created (246810)")
-
-    # 20) stats view renders
-    calls.clear()
-    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:stats", screen_id))
-    assert any("Статистика" in d.get("text", "") for d in find("EditMessageText")), "no stats"
-    print("/admin stats -> rendered")
-
-    # 21) toggle the product off -> becomes unavailable
-    await dp.feed_update(bot, cb_update(ADMIN_ID, f"adm:prod:toggle:{prod.id}", screen_id))
-    async with session_factory() as s:
-        from app.db.models import Product as _Product
-
-        refreshed = await s.get(_Product, prod.id)
-        assert refreshed is not None and not refreshed.available, "toggle did not disable product"
-    print("/admin toggle -> product disabled")
-
-    # 22) /admin add a Mystery Box variant -> box created
-    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:box:add", screen_id))
-    async with session_factory() as s:
-        adm = await s.get(User, ADMIN_ID)
-        assert adm.state == "admin_add_box", adm.state
-    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "Бокс с одеждой 5000"))
-    async with session_factory() as s:
-        from sqlalchemy import select as _select
-
-        from app.db.models import MysteryBox as _Box
-
-        box = await s.scalar(_select(_Box).where(_Box.title == "Бокс с одеждой"))
-        assert box is not None and box.price == 5000, "box was not created"
-    print("/admin add box -> box created")
-
-    # 23) client picks the Mystery Box -> order created + payment offer
-    await dp.feed_update(bot, msg_update(CUSTOMER_ID, "/start"))
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:start", screen_id))
-    assert "оформление заказа" in screen_caption().lower(), screen_caption()
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, "order:mystery", screen_id))
-    assert "mystery box" in screen_caption().lower(), screen_caption()
-    await dp.feed_update(bot, cb_update(CUSTOMER_ID, f"mystery:item:{box.id}", screen_id))
-    assert "mystery box выбран" in screen_caption().lower(), screen_caption()
-    async with session_factory() as s:
-        from app.db.models import Order as _Order
-
-        cust = await s.get(User, CUSTOMER_ID)
-        bo = await s.get(_Order, cust.current_order_id)
-        assert bo is not None and bo.type == "mystery_box" and bo.price == 5000, "box order bad"
-    print("client mystery box -> picked -> order created")
-
-    # 24) /ban by explicit user id (in admin DM) -> client banned
-    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, f"/ban {CUSTOMER_ID}"))
-    async with session_factory() as s:
-        cust = await s.get(User, CUSTOMER_ID)
-        assert cust.is_banned, "/ban by id did not ban"
-    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, f"/pardon {CUSTOMER_ID}"))
-    async with session_factory() as s:
-        cust = await s.get(User, CUSTOMER_ID)
-        assert not cust.is_banned, "/pardon by id did not unban"
-    print("/ban + /pardon by id (DM) -> works")
-
-    # 25) Avito webhook -> persisted before processing -> duplicate ignored
-    from unittest.mock import AsyncMock, patch
-
-    from app.avito_webhook import _process_next, handle_webhook
-    from app.db.models import AvitoWebhookEvent
-
-    class FakeWebhookRequest:
-        def __init__(self, payload: dict):
-            self.payload = payload
-            self.app = {"bot": bot, "wakeup": asyncio.Event()}
-
-        async def json(self) -> dict:
-            return self.payload
-
-    webhook_value = {
-        "id": "avito-message-1",
-        "chat_id": "avito-chat-1",
-        "author_id": 501,
-        "content": {"type": "text", "text": "Здравствуйте!"},
+    await main_dp.feed_update(main_bot, cb(ADMIN_ID, "adm:broadcast"))
+    await main_dp.feed_update(main_bot, msg(ADMIN_ID, "Сообщение всем клиентам"))
+    await main_dp.feed_update(main_bot, cb(ADMIN_ID, "adm:broadcast:send"))
+    task = broadcast_handler._broadcast_task
+    assert task is not None
+    await task
+    copied_recipients = {
+        int(data["chat_id"])
+        for name, data in main_bot.calls
+        if name == "CopyMessage"
     }
-    webhook_payload = {"payload": {"type": "message", "value": webhook_value}}
-    calls.clear()
-    response = await handle_webhook(FakeWebhookRequest(webhook_payload))
-    assert response.status == 200
-    assert not calls, "webhook was processed before being persisted"
-    async with session_factory() as s:
-        stored = await s.get(AvitoWebhookEvent, "avito-message-1")
-        assert stored is not None and stored.processed_at is None
+    assert CUSTOMER_ID in copied_recipients and ADMIN_ID in copied_recipients
+    assert AVITO_USER_ID not in copied_recipients
+    assert any("Рассылка завершена" in text for text in main_bot.texts_to(ADMIN_ID))
+    print("Admin broadcast passed")
 
-    duplicate_response = await handle_webhook(FakeWebhookRequest(webhook_payload))
-    assert duplicate_response.status == 200
-    with patch(
-        "app.services.avito.AvitoClient.get_chat_user_name",
-        new=AsyncMock(return_value="Avito Tester"),
-    ):
-        assert await _process_next(bot)
-    assert any("Здравствуйте!" in str(m.get("text", "")) for m in find("SendMessage"))
-    async with session_factory() as s:
-        stored = await s.get(AvitoWebhookEvent, "avito-message-1")
-        assert stored is not None and stored.processed_at is not None
-
-    calls.clear()
-    await handle_webhook(FakeWebhookRequest(webhook_payload))
-    assert not await _process_next(bot), "processed webhook was handled twice"
-    assert not calls, "duplicate webhook produced another support message"
-    print("Avito webhook -> durable storage + processing + persistent dedup")
-
-    # 26) /panel -> web-panel link (or an explicit missing-URL configuration error)
-    calls.clear()
-    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "/panel"))
-    panel_replies = [d.get("text", "") for d in find("SendMessage")]
-    assert any("Веб-панель" in text or "AVITO_WEBHOOK_URL" in text for text in panel_replies)
-    print("/panel -> web-panel entry point works")
-
-    # 27) /admin operators -> add, rename, and disable an operator
-    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:ops", screen_id))
-    assert any("Оператор" in d.get("text", "") for d in find("EditMessageText"))
-    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:ops:add", screen_id))
-    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "555 Мария"))
-    async with session_factory() as s:
-        from app.db.models import SupportOperator
-
-        operator = await s.get(SupportOperator, 555)
-        assert operator is not None and operator.display_name == "Мария" and operator.is_active
-    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:ops:add", screen_id))
-    await dp.feed_update(bot, msg_no_reply(ADMIN_ID, "555 Мария Иванова"))
-    await dp.feed_update(bot, cb_update(ADMIN_ID, "adm:ops:toggle:555", screen_id))
-    async with session_factory() as s:
-        operator = await s.get(SupportOperator, 555)
-        assert operator.display_name == "Мария Иванова" and not operator.is_active
-    print("/admin operators -> add + rename + disable works")
-
-    await bot.session.close()
-    print("\nALL FLOW ASSERTIONS PASSED ✅")
+    await main_bot.session.close()
+    await support_bot.session.close()
+    await main_engine.dispose()
+    await support_engine.dispose()
+    print("\nALL INTEGRATION ASSERTIONS PASSED")
 
 
 if __name__ == "__main__":

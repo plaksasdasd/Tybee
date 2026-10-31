@@ -26,8 +26,7 @@ OFFER = (
     "3️⃣ Оплата производится по реквизитам, выданным ботом.\n"
     "4️⃣ Сроки доставки зависят от наличия товара и логистики.\n"
     "5️⃣ Возврат и обмен регулируются законодательством РФ.\n\n"
-    "📄 Полный текст оферты: <a href=\"https://tybee.ru/publicoffer\">tybee.ru/publicoffer</a>\n\n"
-    "По всем вопросам — раздел «Поддержка» 🛟"
+    "📄 Полный текст оферты: <a href=\"https://tybee.ru/publicoffer\">tybee.ru/publicoffer</a>"
 )
 
 NO_ORDERS = (
@@ -116,16 +115,6 @@ PAYMENT = (
     "{requisites}"
 )
 
-# Sent to a client when support creates an order for them via /order.
-ORDER_CREATED = (
-    "<b>Вам выставлен счёт</b> 🧾\n\n"
-    "🛍 <b>{title}</b>\n"
-    "{description}"
-    "💴 К оплате: <b>{price} ₽</b>\n\n"
-    "{requisites}\n\n"
-    "После оплаты нажмите «Я оплатил», и мы проверим поступление средств ✅"
-)
-
 PAYMENT_REVIEW = (
     "<b>⏳ Осталось совсем чуть-чуть</b>\n\n"
     "Заказ <b>#{order_id}</b> принят на проверку.\n"
@@ -146,6 +135,35 @@ REJECTED_PAYMENT = (
     "Если вы оплатили — напишите в поддержку, приложив чек, и мы разберёмся 🛟"
 )
 
+ORDER_CREATED = (
+    "<b>Вам выставлен счёт</b> 🧾\n\n"
+    "🛍 <b>{title}</b>\n"
+    "{description}"
+    "💴 К оплате: <b>{price} ₽</b>\n\n"
+    "{requisites}\n\n"
+    "После оплаты нажмите «Я оплатил», и мы проверим поступление средств ✅"
+)
+
+AVITO_INVOICE = (
+    "🧾 ВАМ ВЫСТАВЛЕН СЧЁТ\n\n"
+    "🛍 {title}\n"
+    "{description}"
+    "💴 К оплате: <b>{price} ₽</b>\n\n"
+    "{requisites}\n\n"
+    "После оплаты напишите нам здесь — мы проверим поступление средств ✅"
+)
+
+SUPPORT = (
+    "<b>🛟 Поддержка</b>\n\n"
+    "Напишите ваш вопрос — сотрудник ответит вам прямо здесь."
+)
+
+DIALOG_OPEN = (
+    "<b>Диалог с командой открыт</b> 💬\n\n"
+    "Пишите сюда любые сообщения — они уйдут команде.\n"
+    "Чтобы вернуться в меню, нажмите кнопку ниже."
+)
+
 # ---- Personal order ----
 PERSONAL_PROMPT = (
     "<b>📝 Персональная заявка</b>\n\n"
@@ -160,143 +178,19 @@ PERSONAL_DONE = (
     "Открываем диалог с командой — напишите сюда любые уточнения 💬"
 )
 
-# ---- Support / dialog ----
-SUPPORT = (
-    "<b>🛟 Поддержка</b>\n\n"
-    "Напишите ваш вопрос ✍️ — мы откроем диалог с командой прямо здесь.\n"
-    "Команда отвечает в рабочее время ⏰"
-)
-
-DIALOG_OPEN = (
-    "<b>Диалог с командой открыт</b> 💬\n\n"
-    "Пишите сюда любые сообщения — они уйдут команде.\n"
-    "Чтобы вернуться в меню, нажмите кнопку ниже."
-)
-
-DIALOG_REPLY_PREFIX = "💬 <b>Команда Тайби:</b>\n"
-
-# ---- Admin ----
-ADMIN_NEW_PAYMENT = (
-    "💰 <b>Новый платёж на проверку</b>\n\n"
-    "Заказ <b>#{order_id}</b>\n"
-    "Артикул: {title}\n"
-    "Код: {code}\n"
-    "Сумма: {price} ₽\n"
-    "Клиент: {client}"
-)
-
-ADMIN_NEW_PERSONAL = (
-    "📝 <b>Новая персональная заявка</b>\n\n"
-    "Заказ <b>#{order_id}</b>\n"
-    "Клиент: {client}\n\n"
-    "{description}"
-)
-
-ADMIN_DIALOG_MSG = "👤 <b>{client}</b> (заказ #{order_id}):"
-ADMIN_DIALOG_CLOSED = "🔒 <b>{client}</b> (заказ #{order_id}) завершил(а) диалог."
-ADMIN_PAYMENT_DECISION = "Решение по заказу #{order_id}: <b>{decision}</b>"
-
-# ---- Avito ----
-# Header used when an Avito client's message is relayed into the support thread.
-ADMIN_AVITO_MSG = "🟢 <b>Avito · {client}</b> (заказ #{order_id}):"
-AVITO_ATTACHMENT = "📎 [вложение: {kind}]"
-# Posted into the thread together with confirm/reject buttons after an invoice
-# is issued to an Avito client (they cannot press "Я оплатил" — support confirms
-# manually when the client reports the payment in chat).
-ADMIN_PAYMENT_CONTROL = (
-    "🧾 Счёт по заказу <b>#{order_id}</b> отправлен клиенту в Avito.\n"
-    "Когда клиент сообщит об оплате — подтвердите или отклоните платёж:"
-)
-# Prefix for messages support sends to an Avito client (plain text — Avito
-# does not render HTML).
-AVITO_REPLY_PREFIX = "Команда Тайби:\n"
-AVITO_INVOICE = (
-    "🧾 ВАМ ВЫСТАВЛЕН СЧЁТ\n\n"
-    "🛍 {title}\n"
-    "{description}"
-    "💴 К оплате: {price} ₽\n\n"
-    "{requisites}\n\n"
-    "После оплаты напишите нам здесь — мы проверим поступление средств ✅"
-)
-AVITO_APPROVED = (
-    "✅ Оплата по заказу #{order_id} подтверждена.\n"
-    "Команда уже занимается вашим заказом — пишите здесь, если есть вопросы."
-)
-AVITO_REJECTED = (
-    "❎ По заказу #{order_id} мы не увидели поступление средств.\n"
-    "Если вы оплатили — напишите здесь, приложив чек, и мы разберёмся."
-)
-AVITO_STATUS_NOTIFY = (
-    "📦 Обновление статуса по вашему заказу\n\n"
-    "Заказ #{order_id}\n"
-    "Новый статус: {status}"
-)
-
-# ---- Support thread / commands ----
-THREAD_INTRO = (
-    "🧵 <b>Ветка клиента</b>\n\n"
-    "👤 {client}\n"
-    "🆔 ID: <code>{user_id}</code>\n\n"
-    "Поддержка, заказы и переписка с клиентом — здесь.\n"
-    "Все заказы клиента находятся в этой ветке.\n"
-    "Любое текстовое сообщение в этой ветке уходит клиенту.\n\n"
-    "Команды: /order, /ban, /pardon."
-)
-
-ADMIN_NEW_ORDER = (
-    "🧾 <b>Заказ создан саппортом</b>\n\n"
-    "Заказ <b>#{order_id}</b>\n"
-    "Артикул: {title}\n"
-    "Сумма: {price} ₽\n"
-    "Клиент: {client}\n\n"
-    "Клиенту отправлен счёт с реквизитами."
-)
-
-ORDER_PANEL = (
-    "📦 <b>Заказ #{order_id}</b> — {title}\n"
-    "Текущий статус: <b>{status}</b>\n\n"
-    "Измените статус кнопками ниже — клиент получит уведомление."
-)
-
-ORDER_STATUS_NOTIFY = (
-    "📦 <b>Обновление статуса по вашему заказу</b>\n\n"
-    "Заказ <b>#{order_id}</b>\n"
-    "Новый статус: <b>{status}</b>"
-)
-
-# /order usage help (shown when arguments are malformed).
-ORDER_USAGE = (
-    "Использование: <code>/order название сумма</code>\n\n"
-    "Название поддерживает пробелы:\n"
-    "• <code>/order Кроссовки Nike Air Max 15000</code>\n"
-    "• <code>/order \"Кроссовки Nike\" Очень удобные 15000</code> — кавычки для названия + описание\n"
-    "• <code>/order Кроссовки Nike | Очень удобные, размер 42 | 15000</code> — через <code>|</code>\n\n"
-    "Последний аргумент — сумма в рублях (число)."
-)
-
-ORDER_NEED_THREAD = (
-    "Команду нужно вызывать внутри ветки клиента "
-    "(или ответом на сообщение клиента)."
-)
-
 CMD_NOT_ALLOWED = "Недостаточно прав для этой команды."
 
-# How to point a /ban or /pardon at a client.
 BAN_USAGE = (
-    "Использование: <code>/ban [id или @username]</code>\n\n"
-    "Либо вызовите команду <b>внутри ветки клиента</b> или <b>ответом</b> на его "
-    "сообщение — тогда аргумент не нужен.\n"
+    "Использование: <code>/ban id или @username</code>\n\n"
     "Примеры: <code>/ban 123456789</code>, <code>/ban @username</code>"
 )
 PARDON_USAGE = (
-    "Использование: <code>/pardon [id или @username]</code>\n\n"
-    "Либо вызовите команду <b>внутри ветки клиента</b> или <b>ответом</b> на его "
-    "сообщение.\n"
+    "Использование: <code>/pardon id или @username</code>\n\n"
     "Примеры: <code>/pardon 123456789</code>, <code>/pardon @username</code>"
 )
 TARGET_USERNAME_NOT_FOUND = (
     "Не нашёл клиента <b>{username}</b> — возможно, он ещё не запускал бота. "
-    "Попробуйте указать числовой id или ответить на его сообщение."
+    "Попробуйте указать числовой id."
 )
 
 BAN_DONE = "🚫 Клиент заблокирован. Для разблокировки потребуется штраф в ⭐."
@@ -417,25 +311,21 @@ ADMIN_STATS = (
     "{by_status}"
 )
 
-ADMIN_OPERATORS_HEADER = (
-    "👥 <b>Операторы поддержки</b>\n\n"
-    "Добавьте сотрудника по Telegram ID или измените имя существующего. "
-    "Кнопка с именем включает/отключает доступ."
+ADMIN_BROADCAST_PROMPT = (
+    "📣 <b>Массовая рассылка</b>\n\n"
+    "Отправьте сообщение: текст, фото или другой контент. "
+    "Перед рассылкой будет предпросмотр и подтверждение."
 )
-ADMIN_OPERATORS_EMPTY = "👥 Операторов пока нет. Добавьте первого кнопкой ниже."
-ADMIN_ADD_OPERATOR_PROMPT = (
-    "👤 <b>Добавление или изменение оператора</b>\n\n"
-    "Отправьте: <code>Telegram_ID публичное имя</code>\n"
-    "Например: <code>123456789 Мария</code>"
+ADMIN_BROADCAST_CONFIRM = "Отправить это сообщение всем активным Telegram-пользователям?"
+ADMIN_BROADCAST_STARTED = "📣 Рассылка запущена: получателей — <b>{total}</b>."
+ADMIN_BROADCAST_EMPTY = "Нет активных Telegram-пользователей для рассылки."
+ADMIN_BROADCAST_DONE = (
+    "📣 <b>Рассылка завершена</b>\n\n"
+    "✅ Доставлено: <b>{sent}</b>\n"
+    "🚫 Бот заблокирован: <b>{blocked}</b>\n"
+    "⚠️ Ошибки: <b>{failed}</b>"
 )
-ADMIN_ADD_OPERATOR_BAD_FORMAT = (
-    "⚠️ Нужно: <code>Telegram_ID публичное имя</code>. "
-    "Имя — до 80 символов. Попробуйте ещё раз."
-)
-ADMIN_OPERATOR_SAVED = "✅ Оператор сохранён: <b>{name}</b> (<code>{id}</code>)"
-ADMIN_OPERATOR_SELF_DISABLE = "Нельзя отключить собственный доступ администратора."
-PANEL_NOT_CONFIGURED = "AVITO_WEBHOOK_URL не настроен — адрес веб-панели недоступен."
-PANEL_LINK = "🖥 <b>Веб-панель поддержки</b>\n\n{url}"
+ADMIN_BROADCAST_RUNNING = "Другая рассылка уже выполняется. Дождитесь её завершения."
 
 ADMIN_ONLY = "Команда доступна только администраторам."
 
@@ -447,9 +337,8 @@ BTN_ADM_BOXES = "🎁 Mystery Box"
 BTN_ADM_ADD_BOX = "➕ Добавить бокс"
 BTN_ADM_BACK_BOXES = "⬅️ К боксам"
 BTN_ADM_STATS = "📊 Статистика"
-BTN_ADM_OPERATORS = "👥 Операторы"
-BTN_ADM_ADD_OPERATOR = "➕ Добавить / изменить имя"
-BTN_ADM_OPEN_WEB_PANEL = "🖥 Открыть веб-панель"
+BTN_ADM_BROADCAST = "📣 Рассылка"
+BTN_ADM_BROADCAST_SEND = "📣 Начать рассылку"
 BTN_ADM_CLOSE = "❎ Закрыть"
 BTN_ADM_BACK = "⬅️ Назад"
 BTN_ADM_BACK_LIST = "⬅️ К списку"
@@ -483,6 +372,8 @@ BTN_SUPPORT = "🛟 Поддержка"
 BTN_BACK = "🔙 Назад"
 BTN_MENU = "🔙 Назад"
 BTN_HOME = "🏠 Вернуться на главную"
+BTN_OPEN_DIALOG = "💬 Открыть диалог с командой"
+BTN_CLOSE_DIALOG = "❎ Завершить диалог"
 BTN_OFFER = "📄 Публичная оферта"
 BTN_MY_ORDERS = "📦 Мои заказы"
 BTN_ORDER_ARTICLE = "🏷 По артикулу"
@@ -492,10 +383,6 @@ BTN_PERSONAL_APPLICATION = "📝 Персональная заявка"
 BTN_HAS_ARTICLE = "✅ Да, есть артикул"
 BTN_NO_ARTICLE = "🔍 Нет, помогите найти"
 BTN_PAID = "💸 Я оплатил"
-BTN_OPEN_DIALOG = "💬 Открыть диалог с командой"
-BTN_CLOSE_DIALOG = "❎ Завершить диалог"
-BTN_CONFIRM_PAYMENT = "✅ Подтвердить оплату"
-BTN_REJECT_PAYMENT = "❎ Отклонить"
 BTN_PAY_FINE = "⭐ Оплатить штраф ({fine})"
 BTN_TO_PAYMENT = "💸 Перейти к оплате"
 BTN_OFFER_URL = "https://tybee.ru/publicoffer"

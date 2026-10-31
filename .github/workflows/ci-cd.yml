@@ -41,7 +41,7 @@ jobs:
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
 
       - name: Validate Python sources
-        run: python -m compileall app scripts
+        run: python -m compileall app scripts support_bot
 
       - name: Build container image
         run: docker build -t tybee-bot .
@@ -49,9 +49,8 @@ jobs:
       - name: Run bot for the test window
         if: github.event_name == 'workflow_dispatch'
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
-          SUPPORT_CHAT_ID: ${{ secrets.SUPPORT_CHAT_ID }}
+          TYBEE_BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TYBEE_ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
           POSTGRES_HOST: localhost
           POSTGRES_PORT: "5432"
           POSTGRES_DB: taibi

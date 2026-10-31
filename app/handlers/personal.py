@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +14,6 @@ from app.services.notify import notify_new_personal
 from app.states import UserState
 
 router = Router(name="personal")
-logger = logging.getLogger(__name__)
 
 
 @router.callback_query(F.data == "order:personal")
@@ -46,10 +43,4 @@ async def process_personal(bot: Bot, session: AsyncSession, user: User, descript
     await show_screen(
         bot, session, user, Banner.APPROVED, caption, inline.in_dialog(), force_new=True
     )
-    try:
-        await notify_new_personal(bot, session, user, order)
-    except Exception:
-        # The order and dialog state must not be rolled back if support delivery
-        # is temporarily unavailable. The client should still be able to continue
-        # the conversation instead of creating a new request on every message.
-        logger.exception("Could not notify support about personal order %s", order.id)
+    await notify_new_personal(session, user, order)

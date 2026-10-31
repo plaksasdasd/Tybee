@@ -28,23 +28,18 @@ _COLUMN_PATCHES = (
     "ALTER TABLE orders ALTER COLUMN id DROP DEFAULT",
     "ALTER TABLE users ALTER COLUMN current_order_id TYPE BIGINT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT FALSE",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_thread_id BIGINT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'telegram'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS avito_user_id BIGINT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS avito_chat_id VARCHAR(64)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS photo_file_id VARCHAR(256)",
     "CREATE INDEX IF NOT EXISTS ix_users_username_lower ON users (lower(username))",
-    "CREATE INDEX IF NOT EXISTS ix_users_support_thread_id ON users (support_thread_id)",
     "CREATE INDEX IF NOT EXISTS ix_users_avito_chat_id ON users (avito_chat_id)",
-    "CREATE INDEX IF NOT EXISTS ix_support_messages_user_id_id ON support_messages (user_id, id)",
     # An older bug stored empty file_ids — they make Telegram reject sends
     # with MEDIA_EMPTY; wipe them so banners re-upload from disk.
     "DELETE FROM media_cache WHERE file_id = ''",
 )
 
-# Avito client ids are shifted into a range Telegram ids never reach, so the
-# two id spaces share the users table without colliding.
 AVITO_ID_BASE = 10 ** 12
 
 

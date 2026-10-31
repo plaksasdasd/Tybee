@@ -12,8 +12,6 @@ class Banner(str, Enum):
     ORDER_CHOICE = "order_choice"
     ARTICLE = "article"
     MYSTERY = "mystery"
-    SUPPORT = "support"
-    STATUS = "status"
     PAYMENT = "payment"
     ALMOST = "almost"
     APPROVED = "approved"

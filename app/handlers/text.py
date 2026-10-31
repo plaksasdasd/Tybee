@@ -6,12 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import texts
 from app.db.models import User
-from app.handlers.admin_panel import process_new_box, process_new_operator, process_new_product
+from app.handlers.admin_panel import process_new_box, process_new_product
 from app.handlers.article import process_article
+from app.handlers.broadcast import process_broadcast
 from app.handlers.personal import process_personal
 from app.keyboards import inline
-from app.services.notify import relay_user_to_support
 from app.services.screens import show_menu
+from app.services.support_transport import queue_support_message
 from app.states import UserState
 
 router = Router(name="text")
@@ -33,8 +34,8 @@ async def route_text(message: Message, bot: Bot, session: AsyncSession, user: Us
         await process_new_box(message, session, user)
         return
 
-    if state == UserState.ADMIN_ADD_OPERATOR.value:
-        await process_new_operator(message, session, user)
+    if state == UserState.ADMIN_BROADCAST.value:
+        await process_broadcast(message, bot, session, user)
         return
 
     if state == UserState.ADMIN_IMPORT_PRODUCTS.value:
@@ -50,11 +51,14 @@ async def route_text(message: Message, bot: Bot, session: AsyncSession, user: Us
         return
 
     if state == UserState.DIALOG.value:
-        delivered = await relay_user_to_support(bot, session, user, message)
-        if not delivered:
-            await message.answer(
-                "⚠️ Команда временно недоступна. Попробуйте позже.", parse_mode="HTML"
-            )
+        body = message.text or message.caption or "[вложение]"
+        await queue_support_message(
+            session,
+            user,
+            body,
+            order_id=user.current_order_id,
+            external_id=f"telegram:{user.id}:{message.message_id}",
+        )
         return
 
     # Default: gently bring the user back to the main menu (fresh, at the bottom).

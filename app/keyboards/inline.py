@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app import texts
-from app.db.models import FULFILLMENT_STATUSES, MysteryBox, Product, SupportOperator
+from app.db.models import MysteryBox, Product
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -12,8 +12,7 @@ def main_menu() -> InlineKeyboardMarkup:
     kb.button(text=texts.BTN_NEW_ORDER, callback_data="order:start")
     kb.button(text=texts.BTN_PROFILE, callback_data="profile:open")
     kb.button(text=texts.BTN_SUPPORT, callback_data="support:open")
-    # Wide "Оформить заказ" on top, then Профиль + Поддержка in one row.
-    kb.adjust(1, 2)
+    kb.adjust(1)
     return kb.as_markup()
 
 
@@ -114,56 +113,22 @@ def in_dialog() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def order_status(order_id: int, current: str) -> InlineKeyboardMarkup:
-    """Support control panel: one button per fulfillment status.
-
-    The current status is checked; pressing a button moves the order to that
-    status and notifies the client.
-    """
-    kb = InlineKeyboardBuilder()
-    for status in FULFILLMENT_STATUSES:
-        label = texts.STATUS_LABELS.get(status.value, status.value)
-        if status.value == current:
-            label = f"✅ {label}"
-        kb.button(text=label, callback_data=f"adm:status:{order_id}:{status.value}")
-    kb.adjust(1)
-    return kb.as_markup()
-
-
 def admin_panel() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_ADM_PRODUCTS, callback_data="adm:prod:list")
     kb.button(text=texts.BTN_ADM_BOXES, callback_data="adm:box:list")
     kb.button(text=texts.BTN_ADM_STATS, callback_data="adm:stats")
-    kb.button(text=texts.BTN_ADM_OPERATORS, callback_data="adm:ops")
+    kb.button(text=texts.BTN_ADM_BROADCAST, callback_data="adm:broadcast")
     kb.button(text=texts.BTN_ADM_CLOSE, callback_data="adm:panel:close")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def admin_operators(operators: list[SupportOperator]) -> InlineKeyboardMarkup:
+def admin_broadcast_confirm() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    for operator in operators:
-        mark = "🟢" if operator.is_active else "🔴"
-        kb.button(
-            text=f"{mark} {operator.display_name} · {operator.telegram_id}",
-            callback_data=f"adm:ops:toggle:{operator.telegram_id}",
-        )
-    kb.button(text=texts.BTN_ADM_ADD_OPERATOR, callback_data="adm:ops:add")
-    kb.button(text=texts.BTN_ADM_BACK, callback_data="adm:panel:open")
+    kb.button(text=texts.BTN_ADM_BROADCAST_SEND, callback_data="adm:broadcast:send")
+    kb.button(text=texts.BTN_ADM_CANCEL, callback_data="adm:broadcast:cancel")
     kb.adjust(1)
-    return kb.as_markup()
-
-
-def admin_operators_cancel() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text=texts.BTN_ADM_CANCEL, callback_data="adm:ops")
-    return kb.as_markup()
-
-
-def open_web_panel(url: str) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text=texts.BTN_ADM_OPEN_WEB_PANEL, url=url)
     return kb.as_markup()
 
 
@@ -272,18 +237,3 @@ def pay_offer(order_id: int) -> InlineKeyboardMarkup:
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
     kb.adjust(1)
     return kb.as_markup()
-
-
-def admin_payment(order_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=texts.BTN_CONFIRM_PAYMENT, callback_data=f"adm:confirm:{order_id}"
-                ),
-                InlineKeyboardButton(
-                    text=texts.BTN_REJECT_PAYMENT, callback_data=f"adm:reject:{order_id}"
-                ),
-            ]
-        ]
-    )

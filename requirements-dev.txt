@@ -2,3 +2,4 @@
 # Pillow is only needed for scripts/gen_banners.py (regenerating banners).
 -r requirements.txt
 Pillow==10.4.0
+aiosqlite==0.20.0
