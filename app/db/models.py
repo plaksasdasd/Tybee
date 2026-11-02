@@ -153,13 +153,12 @@ class SupportOutbox(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class PaymentCharge(Base):
-    __tablename__ = "payment_charges"
+class RobokassaPayment(Base):
+    __tablename__ = "robokassa_payments"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
-    )
-    telegram_payment_charge_id: Mapped[str] = mapped_column(String(128), unique=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
-    refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    amount: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

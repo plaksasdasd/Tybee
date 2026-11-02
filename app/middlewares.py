@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _allowed_while_banned(event: TelegramObject) -> bool:
-    """Updates a banned user may still send: the unban payment flow."""
-    if isinstance(event, Message):
-        return event.successful_payment is not None
+    """Updates a banned user may still send: the Robokassa payment flow."""
     if isinstance(event, CallbackQuery):
         return event.data == "unban:pay"
     return False
@@ -44,7 +42,7 @@ def _is_private_user_event(event: TelegramObject, data: dict[str, Any]) -> bool:
 
 
 async def _show_ban_screen(bot: Bot, user: User) -> None:
-    fine = get_settings().unban_fine_stars
+    fine = get_settings().unban_fine_rub
     try:
         await bot.send_message(
             user.id,

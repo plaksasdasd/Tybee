@@ -233,6 +233,12 @@ def pay_fine(fine: int) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def pay_fine_url(url: str, fine: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_PAY_FINE.format(fine=fine), url=url)
+    return kb.as_markup()
+
+
 def pay_offer(order_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=texts.BTN_TO_PAYMENT, callback_data=f"pay:proceed:{order_id}")

@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 from urllib.parse import urlencode
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import get_settings
-from app.db.models import Order
+from app.db.models import Order, RobokassaPayment, User
 
 _PAYMENT_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
 _ALGORITHMS = {
@@ -37,21 +41,20 @@ def _signature(value: str) -> str:
     return hashlib.new(_hash_name(), value.encode("utf-8")).hexdigest().upper()
 
 
-def payment_link(order: Order) -> str | None:
+def build_payment_link(invoice_id: int, amount: int, description: str) -> str | None:
     if not robokassa_ready():
         return None
     settings = get_settings()
-    amount = f"{order.price:.2f}"
-    invoice_id = str(order.id)
-    description = (order.title or f"Заказ #{order.id}")[:100]
+    out_sum = f"{amount:.2f}"
+    invoice = str(invoice_id)
     signature = _signature(
-        f"{settings.robokassa_shop_id}:{amount}:{invoice_id}:{settings.robokassa_password1}"
+        f"{settings.robokassa_shop_id}:{out_sum}:{invoice}:{settings.robokassa_password1}"
     )
     query = {
         "MerchantLogin": settings.robokassa_shop_id,
-        "OutSum": amount,
-        "InvId": invoice_id,
-        "Description": description,
+        "OutSum": out_sum,
+        "InvId": invoice,
+        "Description": description[:100],
         "SignatureValue": signature,
         "Culture": "ru",
     }
@@ -60,6 +63,38 @@ def payment_link(order: Order) -> str | None:
     return f"{_PAYMENT_URL}?{urlencode(query)}"
 
 
+def payment_link(order: Order) -> str | None:
+    return build_payment_link(order.id, order.price, order.title or f"Заказ #{order.id}")
+
+
 def valid_result_signature(out_sum: str, inv_id: str, signature: str) -> bool:
     expected = _signature(f"{out_sum}:{inv_id}:{get_settings().robokassa_password2}")
     return hmac.compare_digest(expected, signature.upper())
+
+
+async def create_unban_payment(session: AsyncSession, user: User) -> RobokassaPayment:
+    existing = await session.scalar(
+        select(RobokassaPayment)
+        .where(
+            RobokassaPayment.user_id == user.id,
+            RobokassaPayment.status == "pending",
+        )
+        .order_by(RobokassaPayment.id.desc())
+        .limit(1)
+    )
+    if existing is not None:
+        return existing
+    while True:
+        invoice_id = secrets.randbelow(100_000_000) + 2_000_000_001
+        if await session.get(RobokassaPayment, invoice_id) is not None:
+            continue
+        if await session.get(Order, invoice_id) is None:
+            break
+    payment = RobokassaPayment(
+        id=invoice_id,
+        user_id=user.id,
+        amount=get_settings().unban_fine_rub,
+    )
+    session.add(payment)
+    await session.flush()
+    return payment
