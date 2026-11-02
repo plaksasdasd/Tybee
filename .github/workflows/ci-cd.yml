@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - dev
   workflow_dispatch:
     inputs:
       run_hours:
@@ -12,10 +13,31 @@ on:
         required: false
         default: "6"
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install --require-hashes -r requirements-lock.txt
+      - name: Validate Python sources
+        run: python -m compileall app scripts support_bot
+      - name: Build container image
+        run: docker build -t tybee-bot .
+
+  manual-run:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    environment: production
     services:
       postgres:
         image: postgres:16-alpine
@@ -32,22 +54,12 @@ jobs:
           --health-retries=10
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && pip install -r requirements.txt
-
-      - name: Validate Python sources
-        run: python -m compileall app scripts support_bot
-
-      - name: Build container image
-        run: docker build -t tybee-bot .
-
+        run: python -m pip install --upgrade pip && pip install --require-hashes -r requirements-lock.txt
       - name: Run bot for the test window
-        if: github.event_name == 'workflow_dispatch'
         env:
           TYBEE_BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           TYBEE_ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
@@ -56,8 +68,9 @@ jobs:
           POSTGRES_DB: taibi
           POSTGRES_USER: taibi
           POSTGRES_PASSWORD: taibi
+          RUN_HOURS: ${{ inputs.run_hours }}
         run: |
-          hours="${{ inputs.run_hours }}"
+          hours="$RUN_HOURS"
           if [ -z "$hours" ]; then
             hours="6"
           fi

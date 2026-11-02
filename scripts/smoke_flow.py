@@ -33,7 +33,17 @@ from aiogram.methods import (
     SetMyCommands,
 )
 from aiogram.methods.base import TelegramMethod
-from aiogram.types import CallbackQuery, Chat, Message, MessageId, PhotoSize, Update
+from aiogram.types import (
+    CallbackQuery,
+    Chat,
+    Message,
+    MessageId,
+    PhotoSize,
+    PreCheckoutQuery,
+    RefundedPayment,
+    SuccessfulPayment,
+    Update,
+)
 from aiogram.types import User as TgUser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -41,7 +51,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.bot import create_dispatcher as create_main_dispatcher
 from app.db.base import Base as MainBase
-from app.db.models import Order, SupportInbox, SupportOutbox, User
+from app.db.models import Order, PaymentCharge, SupportInbox, SupportOutbox, User
 from support_bot.bot import create_dispatcher as create_support_dispatcher
 from support_bot.db import Base as SupportBase
 from support_bot.models import Staff, SupportRequest
@@ -93,6 +103,50 @@ def cb(user_id: int, data: str) -> Update:
         data=data,
     )
     return Update(update_id=next_id(), callback_query=callback)
+
+
+def precheckout_update(user_id: int) -> Update:
+    query = PreCheckoutQuery(
+        id=str(next_id()),
+        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
+        currency="XTR",
+        total_amount=50,
+        invoice_payload=f"unban_fine:{user_id}",
+    )
+    return Update(update_id=next_id(), pre_checkout_query=query)
+
+
+def stars_payment_update(user_id: int) -> Update:
+    payment = SuccessfulPayment(
+        currency="XTR",
+        total_amount=50,
+        invoice_payload=f"unban_fine:{user_id}",
+        telegram_payment_charge_id="charge-1",
+        provider_payment_charge_id="provider-1",
+    )
+    return Update(update_id=next_id(), message=message_for_payment(user_id, payment))
+
+
+def refund_update(user_id: int) -> Update:
+    payment = RefundedPayment(
+        currency="XTR",
+        total_amount=50,
+        invoice_payload=f"unban_fine:{user_id}",
+        telegram_payment_charge_id="charge-1",
+        provider_payment_charge_id="provider-1",
+    )
+    return Update(update_id=next_id(), message=message_for_payment(user_id, payment))
+
+
+def message_for_payment(user_id: int, payment) -> Message:
+    field = "successful_payment" if isinstance(payment, SuccessfulPayment) else "refunded_payment"
+    return Message(
+        message_id=next_id(),
+        date=datetime.now(timezone.utc),
+        chat=Chat(id=user_id, type="private"),
+        from_user=TgUser(id=user_id, is_bot=False, first_name="Tester"),
+        **{field: payment},
+    )
 
 
 class Recorder(Bot):
@@ -172,6 +226,7 @@ async def main() -> None:
 
     async with main_sf() as session:
         session.add(User(id=ADMIN_ID, full_name="Admin", is_admin=True))
+        session.add(User(id=777, full_name="Stale admin", is_admin=True))
         await session.commit()
     async with support_sf() as session:
         session.add_all(
@@ -263,10 +318,34 @@ async def main() -> None:
     await support_dp.feed_update(support_bot, msg(STAFF_ID, "/ban"))
     async with main_sf() as session:
         assert (await session.get(User, CUSTOMER_ID)).is_banned
+    await main_dp.feed_update(main_bot, cb(CUSTOMER_ID, "unban:pay"))
+    invoice_call = [data for name, data in main_bot.calls if name == "SendInvoice"][-1]
+    assert invoice_call["payload"] == f"unban_fine:{CUSTOMER_ID}"
+    await main_dp.feed_update(main_bot, precheckout_update(CUSTOMER_ID))
+    assert any(
+        name == "AnswerPreCheckoutQuery" and data.get("ok") is True
+        for name, data in main_bot.calls
+    )
+    await main_dp.feed_update(main_bot, stars_payment_update(CUSTOMER_ID))
+    async with main_sf() as session:
+        assert not (await session.get(User, CUSTOMER_ID)).is_banned
+        charges = (await session.scalars(select(PaymentCharge))).all()
+        assert len(charges) == 1
+    await main_dp.feed_update(main_bot, stars_payment_update(CUSTOMER_ID))
+    async with main_sf() as session:
+        assert len((await session.scalars(select(PaymentCharge))).all()) == 1
+    await main_dp.feed_update(main_bot, refund_update(CUSTOMER_ID))
+    async with main_sf() as session:
+        assert (await session.get(User, CUSTOMER_ID)).is_banned
+        charge = (await session.scalars(select(PaymentCharge))).one()
+        assert charge.refunded_at is not None
     await support_dp.feed_update(support_bot, msg(STAFF_ID, "/pardon"))
     async with main_sf() as session:
         assert not (await session.get(User, CUSTOMER_ID)).is_banned
-    print("Invoice + payment + status + ban/pardon passed")
+
+    await main_dp.feed_update(main_bot, msg(777, "/admin"))
+    assert any("только администраторам" in text for text in main_bot.texts_to(777))
+    print("Invoice + payment + status + Stars replay/refund + admin revocation passed")
 
     # Robokassa ResultURL verifies the second password and is idempotent.
     await support_dp.feed_update(support_bot, msg(STAFF_ID, "/order Тест Robokassa 1000"))
@@ -305,7 +384,10 @@ async def main() -> None:
         assert len((await session.scalars(select(SupportOutbox))).all()) == outbox_count
     print("Robokassa link + ResultURL + idempotency passed")
 
-    # Avito uses the same inbox/outbox transport.
+    # Avito uses the same inbox/outbox transport and is not exposed without a secret.
+    application = avito_webhook.create_web_application()
+    paths = [route.resource.canonical for route in application.router.routes()]
+    assert not any(path.startswith("/avito/webhook") for path in paths)
     fake_avito = FakeAvito()
     avito_webhook.get_avito = lambda: fake_avito
     main_outbox.get_avito = lambda: fake_avito

@@ -27,6 +27,7 @@ def create_dispatcher() -> Dispatcher:
     middleware = DbSessionMiddleware()
     dp.message.outer_middleware(middleware)
     dp.callback_query.outer_middleware(middleware)
+    dp.pre_checkout_query.outer_middleware(middleware)
     dp.include_router(build_router())
     return dp
 

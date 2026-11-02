@@ -62,6 +62,9 @@ ResultURL: `{AVITO_WEBHOOK_URL}/robokassa/result`. Например,
 
 ## Запуск
 
+Перед запуском задайте уникальный сильный `POSTGRES_PASSWORD`; слабый пароль по умолчанию
+больше не используется. Порт PostgreSQL доступен только на `127.0.0.1`.
+
 ```bash
 docker compose up --build
 ```
@@ -79,7 +82,7 @@ docker compose exec db psql -U taibi -d taibi -c 'CREATE DATABASE tybee_support'
 Нужны обе PostgreSQL на одном сервере. Установите зависимости и запустите общий launcher:
 
 ```bash
-pip install -r requirements.txt
+pip install --require-hashes -r requirements-lock.txt
 python -m scripts.run_bots
 ```
 

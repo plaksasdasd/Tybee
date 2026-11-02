@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 
 from app.config import get_settings
 from app.db.base import session_factory
@@ -13,6 +13,7 @@ DEMO_ARTICLES = ("482915", "100200", "777001", "555123", "321654")
 async def seed() -> None:
     settings = get_settings()
     async with session_factory() as session:
+        await session.execute(update(User).values(is_admin=False))
         for admin_id in settings.admin_ids:
             user = await session.get(User, admin_id)
             if user is None:

@@ -1,5 +1,5 @@
 # Local development extras — NOT installed into the runtime Docker image.
 # Pillow is only needed for scripts/gen_banners.py (regenerating banners).
 -r requirements.txt
-Pillow==10.4.0
+Pillow==13.0.0
 aiosqlite==0.20.0

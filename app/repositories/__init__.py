@@ -44,6 +44,7 @@ async def get_or_create_user(session: AsyncSession, tg_user: TgUser) -> User:
     else:
         user.username = tg_user.username
         user.full_name = full_name
+    user.is_admin = tg_user.id in get_settings().admin_ids
     return user
 
 
@@ -102,7 +103,7 @@ def display_name(user: User) -> str:
 
 
 def is_admin(user: User) -> bool:
-    return user.is_admin or user.id in get_settings().admin_ids
+    return user.id in get_settings().admin_ids
 
 
 # ---- Catalog ----
