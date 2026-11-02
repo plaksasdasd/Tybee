@@ -13,7 +13,6 @@ from app.db.base import session_factory
 from app.db.models import Order, SupportOutbox, User
 from app.keyboards import inline
 from app.services.avito import get_avito
-from app.services.notify import requisites
 from app.services.robokassa import payment_link
 
 logger = logging.getLogger(__name__)
@@ -29,14 +28,16 @@ async def _deliver(bot: Bot, event: SupportOutbox, user: User, order: Order | No
         if not user.avito_chat_id:
             raise RuntimeError(f"Avito chat is missing for user {user.id}")
         if event.kind == "invoice" and order is not None:
-            description = f"{order.description}\n" if order.description else ""
-            body = texts.AVITO_INVOICE.format(
-                title=order.title or "Заказ",
-                description=description,
-                price=order.price or 0,
-                requisites=_plain(requisites()),
-            )
-            if url := payment_link(order):
+            url = payment_link(order)
+            if url is None:
+                body = texts.PAYMENT_UNAVAILABLE
+            else:
+                description = f"{order.description}\n" if order.description else ""
+                body = texts.AVITO_INVOICE.format(
+                    title=order.title or "Заказ",
+                    description=description,
+                    price=order.price or 0,
+                )
                 body += f"\n\nСсылка на оплату: {url}"
         else:
             body = _plain(event.body)
@@ -44,18 +45,25 @@ async def _deliver(bot: Bot, event: SupportOutbox, user: User, order: Order | No
         return
 
     if event.kind == "invoice" and order is not None:
+        url = payment_link(order)
+        if url is None:
+            await bot.send_message(
+                user.id,
+                texts.PAYMENT_UNAVAILABLE,
+                reply_markup=inline.back_to_menu(),
+            )
+            return
         description = f"{html.escape(order.description)}\n" if order.description else ""
         body = texts.ORDER_CREATED.format(
             title=html.escape(order.title or ""),
             description=description,
             price=order.price,
-            requisites=requisites(),
         )
         await bot.send_message(
             user.id,
             body,
             parse_mode="HTML",
-            reply_markup=inline.payment_actions(order.id, payment_link(order)),
+            reply_markup=inline.payment_actions(url),
         )
         return
     if event.kind == "approval" and order is not None:

@@ -207,7 +207,7 @@ async def orders_by_status(session: AsyncSession) -> dict[str, int]:
 # ---- Orders ----
 def _new_order_id() -> int:
     """Generate a random 9–10 digit public order ID."""
-    return secrets.randbelow(9_900_000_000) + 100_000_000
+    return secrets.randbelow(1_900_000_000) + 100_000_000
 
 
 async def create_order(session: AsyncSession, user: User, **fields: object) -> Order:

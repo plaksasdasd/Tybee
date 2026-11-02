@@ -12,7 +12,7 @@ from app.assets import Banner
 from app.db.models import User
 from app.keyboards import inline
 from app.services.navigation import show_screen
-from app.services.notify import requisites
+from app.services.robokassa import payment_link
 from app.states import UserState
 
 
@@ -27,10 +27,17 @@ async def show_menu(
 
 
 async def show_payment(bot: Bot, session: AsyncSession, user: User, order) -> None:
+    url = payment_link(order)
+    if url is None:
+        await show_screen(
+            bot, session, user, Banner.PAYMENT, texts.PAYMENT_UNAVAILABLE, inline.back_to_menu()
+        )
+        return
     caption = texts.PAYMENT.format(
         order_id=order.id,
         title=html.escape(order.title or ""),
         price=order.price,
-        requisites=requisites(),
     )
-    await show_screen(bot, session, user, Banner.PAYMENT, caption, inline.payment_actions(order.id))
+    await show_screen(
+        bot, session, user, Banner.PAYMENT, caption, inline.payment_actions(url)
+    )

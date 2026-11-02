@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     bot_token: str = Field(validation_alias="TYBEE_BOT_TOKEN")
     admin_ids_raw: str = Field(default="", validation_alias="TYBEE_ADMIN_IDS")
 
-    payment_requisites: str = ""
     unban_fine_rub: int = 50
 
     avito_enabled: bool = False

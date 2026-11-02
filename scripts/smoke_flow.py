@@ -234,6 +234,7 @@ async def main() -> None:
         if name == "SendMessage" and int(data.get("chat_id", 0)) == CUSTOMER_ID
     ][-1]
     assert url in str(invoice_call["reply_markup"])
+    assert "pay:done" not in str(invoice_call["reply_markup"])
     query = parse_qs(urlparse(url).query)
     expected_signature = hashlib.md5(
         f"testshop:6900.00:{order_id}:pass1".encode()
@@ -242,11 +243,16 @@ async def main() -> None:
     assert query["Description"] == ["Куртка зимняя"] and query["IsTest"] == ["1"]
     assert order_id <= 2_000_000_000
 
-    await main_dp.feed_update(main_bot, cb(CUSTOMER_ID, f"pay:done:{order_id}"))
-    assert await importer.process_next_source_event(support_bot)
-    await support_dp.feed_update(support_bot, cb(STAFF_ID, f"order:confirm:{order_id}"))
+    from app.robokassa_webhook import process_robokassa_result
+
+    signature = hashlib.md5(f"6900.00:{order_id}:pass2".encode()).hexdigest().upper()
+    response = await process_robokassa_result(
+        {"OutSum": "6900.00", "InvId": str(order_id), "SignatureValue": signature}
+    )
+    assert response.status == 200 and response.text == f"OK{order_id}"
     async with main_sf() as session:
         assert (await session.get(Order, order_id)).status == "approved"
+    assert await importer.process_next_source_event(support_bot)
     assert await main_outbox.process_next_outbox(main_bot)
     approval_calls = [
         data
@@ -264,8 +270,6 @@ async def main() -> None:
     await support_dp.feed_update(support_bot, msg(STAFF_ID, "/ban"))
     async with main_sf() as session:
         assert (await session.get(User, CUSTOMER_ID)).is_banned
-    from app.robokassa_webhook import process_robokassa_result
-
     await main_dp.feed_update(main_bot, cb(CUSTOMER_ID, "unban:pay"))
     async with main_sf() as session:
         unban_payment = (await session.scalars(select(RobokassaPayment))).one()

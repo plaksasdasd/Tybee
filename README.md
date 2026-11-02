@@ -41,7 +41,7 @@ cp .env.example .env
 
 - `TYBEE_BOT_TOKEN` и `TYBEE_ADMIN_IDS`;
 - `SUPPORT_BOT_TOKEN`, `SUPPORT_ADMIN_IDS` и при необходимости `SUPPORT_STAFF_IDS`;
-- `PAYMENT_REQUISITES` и настройки Avito, если они нужны.
+- настройки Robokassa и Avito, если они нужны.
 
 Настройки `POSTGRES_*` и `SUPPORT_POSTGRES_*` уже соответствуют Docker Compose.
 Основной бот и поддержка используют `POSTGRES_*` для обмена обращениями и заказами.
@@ -49,7 +49,7 @@ cp .env.example .env
 
 ## Robokassa
 
-Для ссылок на оплату через `/order` заполните `ROBOKASSA_SHOP_ID`,
+Для автоматической оплаты всех заказов и счетов `/order` заполните `ROBOKASSA_SHOP_ID`,
 `ROBOKASSA_PASSWORD1`, `ROBOKASSA_PASSWORD2` и `ROBOKASSA_HASH_ALGORITHM`.
 В кабинете Robokassa выберите тот же алгоритм. `ROBOKASSA_TEST=true` добавляет `IsTest=1`;
 для боевых платежей установите `false`.
