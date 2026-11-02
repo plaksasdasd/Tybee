@@ -7,6 +7,7 @@ venv/
 .env.*
 !.env.example
 .ruff_cache/
+opencode*.json
 *.log
 .DS_Store
 
