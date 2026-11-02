@@ -14,6 +14,7 @@ from app.db.models import Order, SupportOutbox, User
 from app.keyboards import inline
 from app.services.avito import get_avito
 from app.services.notify import requisites
+from app.services.robokassa import payment_link
 
 logger = logging.getLogger(__name__)
 _TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
@@ -35,6 +36,8 @@ async def _deliver(bot: Bot, event: SupportOutbox, user: User, order: Order | No
                 price=order.price or 0,
                 requisites=_plain(requisites()),
             )
+            if url := payment_link(order):
+                body += f"\n\nСсылка на оплату: {url}"
         else:
             body = _plain(event.body)
         await get_avito().send_message(user.avito_chat_id, body)
@@ -52,7 +55,7 @@ async def _deliver(bot: Bot, event: SupportOutbox, user: User, order: Order | No
             user.id,
             body,
             parse_mode="HTML",
-            reply_markup=inline.payment_actions(order.id),
+            reply_markup=inline.payment_actions(order.id, payment_link(order)),
         )
         return
     if event.kind == "approval" and order is not None:

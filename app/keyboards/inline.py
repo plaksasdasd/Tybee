@@ -83,8 +83,10 @@ def mystery_boxes(boxes: list[MysteryBox]) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def payment_actions(order_id: int) -> InlineKeyboardMarkup:
+def payment_actions(order_id: int, payment_url: str | None = None) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    if payment_url:
+        kb.button(text=texts.BTN_PAY_ONLINE, url=payment_url)
     kb.button(text=texts.BTN_PAID, callback_data=f"pay:done:{order_id}")
     kb.button(text=texts.BTN_MENU, callback_data="menu:open")
     kb.adjust(1)

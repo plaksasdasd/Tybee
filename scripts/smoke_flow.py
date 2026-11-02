@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+os.environ.setdefault("ROBOKASSA_SHOP_ID", "testshop")
+os.environ.setdefault("ROBOKASSA_PASSWORD1", "pass1")
+os.environ.setdefault("ROBOKASSA_PASSWORD2", "pass2")
+os.environ.setdefault("ROBOKASSA_HASH_ALGORITHM", "MD5")
+os.environ.setdefault("ROBOKASSA_TEST", "true")
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "support_bot"))
@@ -134,6 +143,7 @@ class FakeAvito:
 async def main() -> None:
     import app.avito_webhook as avito_webhook
     import app.middlewares as main_middleware
+    import app.robokassa_webhook as robo_webhook
     import app.services.outbox as main_outbox
     import support_bot.middlewares as support_middleware
     import support_bot.source_db as source_db
@@ -153,6 +163,7 @@ async def main() -> None:
     main_middleware.session_factory = main_sf
     main_outbox.session_factory = main_sf
     avito_webhook.session_factory = main_sf
+    robo_webhook.session_factory = main_sf
     support_middleware.session_factory = support_sf
     importer.session_factory = support_sf
     importer.source_session_factory = main_sf
@@ -213,6 +224,22 @@ async def main() -> None:
     assert await main_outbox.process_next_outbox(main_bot)
     invoice = main_bot.texts_to(CUSTOMER_ID)[-1]
     assert "6900" in invoice
+    from app.services.robokassa import payment_link
+
+    url = payment_link(order)
+    invoice_call = [
+        data
+        for name, data in main_bot.calls
+        if name == "SendMessage" and int(data.get("chat_id", 0)) == CUSTOMER_ID
+    ][-1]
+    assert url in str(invoice_call["reply_markup"])
+    query = parse_qs(urlparse(url).query)
+    expected_signature = hashlib.md5(
+        f"testshop:6900.00:{order_id}:pass1".encode()
+    ).hexdigest().upper()
+    assert query["SignatureValue"] == [expected_signature]
+    assert query["Description"] == ["Куртка зимняя"] and query["IsTest"] == ["1"]
+    assert order_id <= 2_000_000_000
 
     await main_dp.feed_update(main_bot, cb(CUSTOMER_ID, f"pay:done:{order_id}"))
     assert await importer.process_next_source_event(support_bot)
@@ -240,6 +267,43 @@ async def main() -> None:
     async with main_sf() as session:
         assert not (await session.get(User, CUSTOMER_ID)).is_banned
     print("Invoice + payment + status + ban/pardon passed")
+
+    # Robokassa ResultURL verifies the second password and is idempotent.
+    await support_dp.feed_update(support_bot, msg(STAFF_ID, "/order Тест Robokassa 1000"))
+    async with main_sf() as session:
+        robo_order = await session.scalar(select(Order).where(Order.title == "Тест Robokassa"))
+        robo_order_id = robo_order.id
+    assert await main_outbox.process_next_outbox(main_bot)
+    from app.robokassa_webhook import process_robokassa_result
+
+    signature = hashlib.md5(f"1000.00:{robo_order_id}:pass2".encode()).hexdigest().upper()
+    bad_response = await process_robokassa_result(
+        {"OutSum": "1000.00", "InvId": str(robo_order_id), "SignatureValue": "bad"}
+    )
+    assert bad_response.status == 403, (bad_response.status, bad_response.text)
+    response = await process_robokassa_result(
+        {"OutSum": "1000.00", "InvId": str(robo_order_id), "SignatureValue": signature}
+    )
+    assert response.status == 200 and response.text == f"OK{robo_order_id}"
+    async with main_sf() as session:
+        assert (await session.get(Order, robo_order_id)).status == "approved"
+    assert await importer.process_next_source_event(support_bot)
+    assert await main_outbox.process_next_outbox(main_bot)
+    assert any(
+        name == "SendMessage" and f"order:status:{robo_order_id}" in str(data)
+        for name, data in support_bot.calls
+    )
+    async with main_sf() as session:
+        inbox_count = len((await session.scalars(select(SupportInbox))).all())
+        outbox_count = len((await session.scalars(select(SupportOutbox))).all())
+    repeated = await process_robokassa_result(
+        {"OutSum": "1000.00", "InvId": str(robo_order_id), "SignatureValue": signature}
+    )
+    assert repeated.status == 200
+    async with main_sf() as session:
+        assert len((await session.scalars(select(SupportInbox))).all()) == inbox_count
+        assert len((await session.scalars(select(SupportOutbox))).all()) == outbox_count
+    print("Robokassa link + ResultURL + idempotency passed")
 
     # Avito uses the same inbox/outbox transport.
     fake_avito = FakeAvito()

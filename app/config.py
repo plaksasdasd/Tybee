@@ -22,15 +22,21 @@ class Settings(BaseSettings):
     avito_webhook_secret: str = ""
     avito_webhook_port: int = 8080
 
+    robokassa_shop_id: str = ""
+    robokassa_password1: str = ""
+    robokassa_password2: str = ""
+    robokassa_hash_algorithm: str = "MD5"
+    robokassa_test: bool = True
+
     postgres_host: str = "db"
     postgres_port: int = 5432
     postgres_db: str = "taibi"
     postgres_user: str = "taibi"
     postgres_password: str = "taibi"
 
-    @field_validator("avito_enabled", mode="before")
+    @field_validator("avito_enabled", "robokassa_test", mode="before")
     @classmethod
-    def _parse_avito_enabled(cls, value: object) -> object:
+    def _parse_optional_bool(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
             return False
         return value

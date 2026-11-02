@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from support_bot import repositories as repo
 from support_bot.db import session_factory
-from support_bot.keyboards import payment_actions
+from support_bot.keyboards import order_status_actions, payment_actions
 from support_bot.models import SupportMessage, SupportRequest
 from support_bot.services import (
     esc,
@@ -20,6 +20,7 @@ from support_bot.services import (
 )
 from support_bot.source_db import source_enabled, source_session_factory
 from support_bot.source_models import SourceConversation, SourceInbox, SourceUser
+from support_bot.source_repository import FULFILLMENT_STATUSES
 from support_bot.states import RequestStatus
 
 logger = logging.getLogger(__name__)
@@ -28,13 +29,18 @@ logger = logging.getLogger(__name__)
 async def _notify_payment(
     bot: Bot, session: AsyncSession, request: SupportRequest, event: SourceInbox
 ) -> None:
+    markup = (
+        order_status_actions(event.order_id, list(FULFILLMENT_STATUSES))
+        if event.kind == "payment_success"
+        else payment_actions(event.order_id)
+    )
     for staff_id in await repo.list_recipient_ids(session):
         try:
             await bot.send_message(
                 staff_id,
                 f"💰 <b>Обращение #{request.id}</b>\n{esc(event.body)}",
                 parse_mode="HTML",
-                reply_markup=payment_actions(event.order_id),
+                reply_markup=markup,
             )
         except TelegramAPIError as exc:
             logger.warning("Could not send payment panel to %s: %s", staff_id, exc)
@@ -118,7 +124,7 @@ async def process_next_source_event(bot: Bot) -> bool:
                 await safe_body_message(
                     bot, request.assigned_to, request.id, "Клиент", event.body
                 )
-            if event.kind == "payment_review" and event.order_id is not None:
+            if event.kind in {"payment_review", "payment_success"} and event.order_id is not None:
                 await _notify_payment(bot, session, request, event)
 
         event.processed_at = func.now()

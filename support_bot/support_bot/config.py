@@ -23,12 +23,6 @@ class Settings(BaseSettings):
     postgres_user: str = Field(default="taibi", validation_alias="SUPPORT_POSTGRES_USER")
     postgres_password: str = Field(default="taibi", validation_alias="SUPPORT_POSTGRES_PASSWORD")
 
-    source_postgres_host: str = ""
-    source_postgres_port: int = 5432
-    source_postgres_db: str = "taibi"
-    source_postgres_user: str = "taibi"
-    source_postgres_password: str = "taibi"
-
     @staticmethod
     def _ids(raw: str) -> list[int]:
         return [int(part) for part in raw.replace(";", ",").split(",") if part.strip()]

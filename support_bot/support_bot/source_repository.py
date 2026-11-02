@@ -55,7 +55,7 @@ async def create_order(
         if user is None:
             raise ValueError("Клиент не найден")
         while True:
-            order_id = secrets.randbelow(9_900_000_000) + 100_000_000
+            order_id = secrets.randbelow(1_900_000_000) + 100_000_000
             if await session.get(SourceOrder, order_id) is None:
                 break
         order = SourceOrder(

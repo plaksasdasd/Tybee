@@ -6,7 +6,9 @@ from aiohttp import web
 
 from app.config import get_settings
 from app.db.base import session_factory
+from app.robokassa_webhook import handle_robokassa_result
 from app.services.avito import get_avito
+from app.services.robokassa import robokassa_ready
 from app.services.support_transport import get_or_create_avito_user, queue_support_message
 
 logger = logging.getLogger(__name__)
@@ -82,25 +84,31 @@ async def handle_webhook(request: web.Request) -> web.Response:
 def create_web_application() -> web.Application:
     app = web.Application()
     app.router.add_get("/health", health)
-    app.router.add_post(get_settings().avito_webhook_path, handle_webhook)
+    if get_avito().enabled:
+        app.router.add_post(get_settings().avito_webhook_path, handle_webhook)
+    if robokassa_ready():
+        app.router.add_get("/robokassa/result", handle_robokassa_result)
+        app.router.add_post("/robokassa/result", handle_robokassa_result)
     return app
 
 
 async def start_web_server() -> web.AppRunner | None:
     settings = get_settings()
     avito = get_avito()
-    if not avito.enabled:
+    if not avito.enabled and not robokassa_ready():
         return None
-    if not settings.avito_webhook_url or not settings.avito_webhook_secret.strip():
+    if avito.enabled and (
+        not settings.avito_webhook_url or not settings.avito_webhook_secret.strip()
+    ):
         logger.error("Avito webhook requires AVITO_WEBHOOK_URL and AVITO_WEBHOOK_SECRET")
-        return None
     runner = web.AppRunner(create_web_application())
     await runner.setup()
     site = web.TCPSite(runner, host="0.0.0.0", port=settings.avito_webhook_port)
     await site.start()
-    logger.info("Avito webhook listening on port %s", settings.avito_webhook_port)
-    try:
-        await avito.subscribe_webhook(settings.avito_subscription_url)
-    except Exception as exc:
-        logger.error("Could not subscribe the Avito webhook: %s", exc)
+    logger.info("Webhook server listening on port %s", settings.avito_webhook_port)
+    if avito.enabled and settings.avito_webhook_url and settings.avito_webhook_secret.strip():
+        try:
+            await avito.subscribe_webhook(settings.avito_subscription_url)
+        except Exception as exc:
+            logger.error("Could not subscribe the Avito webhook: %s", exc)
     return runner

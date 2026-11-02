@@ -43,8 +43,22 @@ cp .env.example .env
 - `SUPPORT_BOT_TOKEN`, `SUPPORT_ADMIN_IDS` и при необходимости `SUPPORT_STAFF_IDS`;
 - `PAYMENT_REQUISITES` и настройки Avito, если они нужны.
 
-Настройки `POSTGRES_*`, `SUPPORT_POSTGRES_*` и `SOURCE_POSTGRES_*` уже соответствуют
-Docker Compose. Отдельные `.env` внутри каталогов ботов не нужны.
+Настройки `POSTGRES_*` и `SUPPORT_POSTGRES_*` уже соответствуют Docker Compose.
+Основной бот и поддержка используют `POSTGRES_*` для обмена обращениями и заказами.
+Отдельные `.env` внутри каталогов ботов не нужны.
+
+## Robokassa
+
+Для ссылок на оплату через `/order` заполните `ROBOKASSA_SHOP_ID`,
+`ROBOKASSA_PASSWORD1`, `ROBOKASSA_PASSWORD2` и `ROBOKASSA_HASH_ALGORITHM`.
+В кабинете Robokassa выберите тот же алгоритм. `ROBOKASSA_TEST=true` добавляет `IsTest=1`;
+для боевых платежей установите `false`.
+
+ResultURL: `{AVITO_WEBHOOK_URL}/robokassa/result`. Например,
+`https://bot.example.com/robokassa/result`. Второй пароль проверяется на сервере,
+после успешной оплаты заказ автоматически подтверждается, а поддержка получает
+панель дальнейших статусов. HTTP-сервер запускается на `AVITO_WEBHOOK_PORT` и при
+выключенном Avito.
 
 ## Запуск
 
