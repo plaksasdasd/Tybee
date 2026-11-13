@@ -8,3 +8,15 @@ opencode*.json
 .env
 .env.*
 README.md
+covers/
+data/
+site/frontend/node_modules
+site/frontend/dist
+My/
+tests/
+.agents/
+site/
+
+*.env
+*.env.*
+audit/

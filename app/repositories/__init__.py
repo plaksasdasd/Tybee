@@ -11,12 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.models import (
-    MediaCache,
+    Cover,
+    CoverMediaCache,
+    CoverProductPhoto,
     MysteryBox,
     Order,
     OrderStatus,
     Product,
     User,
+    UserCover,
 )
 from app.states import UserState
 
@@ -29,7 +32,6 @@ async def get_or_create_user(session: AsyncSession, tg_user: TgUser) -> User:
             id=tg_user.id,
             username=tg_user.username,
             full_name=full_name,
-            is_admin=tg_user.id in get_settings().admin_ids,
         )
         session.add(user)
         try:
@@ -44,7 +46,6 @@ async def get_or_create_user(session: AsyncSession, tg_user: TgUser) -> User:
     else:
         user.username = tg_user.username
         user.full_name = full_name
-    user.is_admin = tg_user.id in get_settings().admin_ids
     return user
 
 
@@ -52,44 +53,34 @@ async def get_user(session: AsyncSession, user_id: int) -> User | None:
     return await session.get(User, user_id)
 
 
-async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
-    return await session.scalar(
-        select(User).where(func.lower(User.username) == username.lstrip("@").lower())
-    )
+# ---- Covers / per-cover client state ----
+async def get_cover(session: AsyncSession, cover_id: int) -> Cover | None:
+    return await session.get(Cover, cover_id)
 
 
-async def get_or_create_user_by_id(session: AsyncSession, user_id: int) -> User:
-    user = await session.get(User, user_id)
-    if user is None:
-        user = User(id=user_id, is_admin=user_id in get_settings().admin_ids)
-        session.add(user)
+async def get_or_create_user_cover(
+    session: AsyncSession, user: User, cover_id: int
+) -> UserCover:
+    uc = await session.get(UserCover, (user.id, cover_id))
+    if uc is None:
+        uc = UserCover(user_id=user.id, cover_id=cover_id, state=UserState.MENU.value)
+        session.add(uc)
         try:
             await session.flush()
         except IntegrityError:
             await session.rollback()
-            user = await session.get(User, user_id)
-            if user is None:
+            uc = await session.get(UserCover, (user.id, cover_id))
+            if uc is None:
                 raise
-    return user
+    return uc
 
 
-async def set_banned(session: AsyncSession, user: User, banned: bool) -> None:
-    user.is_banned = banned
+async def set_state(session: AsyncSession, uc: UserCover, state: UserState) -> None:
+    uc.state = state.value
 
 
-async def list_broadcast_user_ids(session: AsyncSession) -> list[int]:
-    rows = await session.scalars(
-        select(User.id).where(User.source == "telegram", User.is_banned.is_(False))
-    )
-    return list(rows)
-
-
-async def set_state(session: AsyncSession, user: User, state: UserState) -> None:
-    user.state = state.value
-
-
-async def set_screen(session: AsyncSession, user: User, message_id: int | None) -> None:
-    user.screen_message_id = message_id
+async def set_screen(session: AsyncSession, uc: UserCover, message_id: int | None) -> None:
+    uc.screen_message_id = message_id
 
 
 def display_name(user: User) -> str:
@@ -102,10 +93,6 @@ def display_name(user: User) -> str:
     return html.escape(f"{user.full_name}{handle}".strip())
 
 
-def is_admin(user: User) -> bool:
-    return user.id in get_settings().admin_ids
-
-
 # ---- Catalog ----
 async def find_product_by_article(session: AsyncSession, article: str) -> Product | None:
     return await session.scalar(
@@ -113,54 +100,7 @@ async def find_product_by_article(session: AsyncSession, article: str) -> Produc
     )
 
 
-async def list_products(session: AsyncSession) -> list[Product]:
-    result = await session.scalars(select(Product).order_by(Product.id.desc()))
-    return list(result)
-
-
-async def get_product(session: AsyncSession, product_id: int) -> Product | None:
-    return await session.get(Product, product_id)
-
-
-async def get_product_by_article(session: AsyncSession, article: str) -> Product | None:
-    return await session.scalar(select(Product).where(Product.article == article))
-
-
-async def create_product(
-    session: AsyncSession,
-    article: str,
-    title: str,
-    price: int,
-    description: str | None = None,
-    photo_file_id: str | None = None,
-) -> Product:
-    product = Product(
-        article=article,
-        title=title,
-        price=price,
-        description=description,
-        photo_file_id=photo_file_id,
-        available=True,
-    )
-    session.add(product)
-    await session.flush()
-    return product
-
-
-async def toggle_product(session: AsyncSession, product: Product) -> None:
-    product.available = not product.available
-
-
-async def delete_product(session: AsyncSession, product: Product) -> None:
-    await session.delete(product)
-
-
 # ---- Mystery boxes ----
-async def list_boxes(session: AsyncSession) -> list[MysteryBox]:
-    result = await session.scalars(select(MysteryBox).order_by(MysteryBox.id.desc()))
-    return list(result)
-
-
 async def list_available_boxes(session: AsyncSession) -> list[MysteryBox]:
     result = await session.scalars(
         select(MysteryBox).where(MysteryBox.available.is_(True)).order_by(MysteryBox.price)
@@ -172,54 +112,24 @@ async def get_box(session: AsyncSession, box_id: int) -> MysteryBox | None:
     return await session.get(MysteryBox, box_id)
 
 
-async def create_box(session: AsyncSession, title: str, price: int) -> MysteryBox:
-    box = MysteryBox(title=title, price=price, available=True)
-    session.add(box)
-    await session.flush()
-    return box
-
-
-async def toggle_box(session: AsyncSession, box: MysteryBox) -> None:
-    box.available = not box.available
-
-
-async def delete_box(session: AsyncSession, box: MysteryBox) -> None:
-    await session.delete(box)
-
-
-async def count_rows(session: AsyncSession, model: type) -> int:
-    return await session.scalar(select(func.count()).select_from(model)) or 0
-
-
-async def count_banned_users(session: AsyncSession) -> int:
-    return await session.scalar(
-        select(func.count()).select_from(User).where(User.is_banned.is_(True))
-    ) or 0
-
-
-async def orders_by_status(session: AsyncSession) -> dict[str, int]:
-    rows = await session.execute(
-        select(Order.status, func.count()).group_by(Order.status)
-    )
-    return {status: count for status, count in rows.all()}
-
-
 # ---- Orders ----
 def _new_order_id() -> int:
     """Generate a random 9–10 digit public order ID."""
     return secrets.randbelow(1_900_000_000) + 100_000_000
 
 
-async def create_order(session: AsyncSession, user: User, **fields: object) -> Order:
+async def create_order(
+    session: AsyncSession, user: User, uc: UserCover, **fields: object
+) -> Order:
     # Retry on the extremely unlikely collision with an existing order ID.
     while True:
         order_id = _new_order_id()
         if await session.get(Order, order_id) is not None:
             continue
-        order = Order(id=order_id, user_id=user.id, **fields)
+        order = Order(id=order_id, user_id=user.id, cover_id=uc.cover_id, **fields)
         session.add(order)
         await session.flush()
-        user.current_order_id = order.id
+        uc.current_order_id = order.id
         return order
 
 
@@ -227,16 +137,21 @@ async def get_order(session: AsyncSession, order_id: int) -> Order | None:
     return await session.get(Order, order_id)
 
 
-async def list_orders(session: AsyncSession, user_id: int) -> list[Order]:
+async def list_orders(session: AsyncSession, user_id: int, cover_id: int) -> list[Order]:
     result = await session.scalars(
-        select(Order).where(Order.user_id == user_id).order_by(Order.id.desc()).limit(10)
+        select(Order)
+        .where(Order.user_id == user_id, Order.cover_id == cover_id)
+        .order_by(Order.created_at.desc(), Order.id.desc())
+        .limit(get_settings().profile_orders_limit)
     )
     return list(result)
 
 
-async def count_user_orders(session: AsyncSession, user_id: int) -> int:
+async def count_user_orders(session: AsyncSession, user_id: int, cover_id: int) -> int:
     return await session.scalar(
-        select(func.count()).select_from(Order).where(Order.user_id == user_id)
+        select(func.count())
+        .select_from(Order)
+        .where(Order.user_id == user_id, Order.cover_id == cover_id)
     ) or 0
 
 
@@ -246,26 +161,55 @@ async def set_order_status(session: AsyncSession, order: Order, status: OrderSta
     await session.refresh(order)
 
 
-# ---- Media cache ----
-async def get_cached_file_id(session: AsyncSession, key: str) -> str | None:
-    cached = await session.get(MediaCache, key)
-    if cached is None:
-        return None
+# ---- Media cache (per cover: file_ids are bot-specific) ----
+async def get_cached_banner(
+    session: AsyncSession, cover_id: int, key: str
+) -> CoverMediaCache | None:
+    cached = await session.get(CoverMediaCache, (cover_id, key))
     # An empty file_id is never a valid media reference — treat it as absent so
-    # callers fall back to uploading the banner from disk instead of sending
-    # an empty photo (Telegram answers MEDIA_EMPTY).
-    return cached.file_id or None
+    # callers fall back to uploading the banner from disk (Telegram: MEDIA_EMPTY).
+    if cached is None or not cached.file_id:
+        return None
+    return cached
 
 
-async def set_cached_file_id(session: AsyncSession, key: str, file_id: str) -> None:
-    cached = await session.get(MediaCache, key)
+async def set_cached_banner(
+    session: AsyncSession, cover_id: int, key: str, file_id: str, fingerprint: str
+) -> None:
+    cached = await session.get(CoverMediaCache, (cover_id, key))
     if cached is None:
-        session.add(MediaCache(key=key, file_id=file_id))
+        session.add(
+            CoverMediaCache(cover_id=cover_id, key=key, file_id=file_id, fingerprint=fingerprint)
+        )
     else:
         cached.file_id = file_id
+        cached.fingerprint = fingerprint
 
 
-async def delete_cached_file_id(session: AsyncSession, key: str) -> None:
-    cached = await session.get(MediaCache, key)
+async def delete_cached_banner(session: AsyncSession, cover_id: int, key: str) -> None:
+    cached = await session.get(CoverMediaCache, (cover_id, key))
     if cached is not None:
         await session.delete(cached)
+
+
+# ---- Product photos per cover ----
+async def get_product_photo_row(
+    session: AsyncSession, product_id: int, cover_id: int
+) -> CoverProductPhoto | None:
+    return await session.get(CoverProductPhoto, (product_id, cover_id))
+
+
+async def set_product_photo(
+    session: AsyncSession, product_id: int, cover_id: int, file_id: str
+) -> None:
+    row = await session.get(CoverProductPhoto, (product_id, cover_id))
+    if row is None:
+        session.add(CoverProductPhoto(product_id=product_id, cover_id=cover_id, file_id=file_id))
+    else:
+        row.file_id = file_id
+
+
+async def delete_product_photo(session: AsyncSession, product_id: int, cover_id: int) -> None:
+    row = await session.get(CoverProductPhoto, (product_id, cover_id))
+    if row is not None:
+        await session.delete(row)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -9,8 +10,8 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from app import repositories as repo
-from app import texts
-from app.config import get_settings
+from app.covers import registry
+from app.covers.loader import cover_text, cover_unban_fine
 from app.db.base import session_factory
 from app.db.models import User
 from app.keyboards import inline
@@ -41,29 +42,36 @@ def _is_private_user_event(event: TelegramObject, data: dict[str, Any]) -> bool:
     return False
 
 
-async def _show_ban_screen(bot: Bot, user: User) -> None:
-    fine = get_settings().unban_fine_rub
+async def _show_ban_screen(bot: Bot, user: User, cover_id: int) -> None:
+    fine = cover_unban_fine(cover_id)
     try:
         await bot.send_message(
             user.id,
-            texts.BANNED_SCREEN.format(fine=fine),
+            cover_text(cover_id, "BANNED_SCREEN", fine=fine),
             parse_mode="HTML",
-            reply_markup=inline.pay_fine(fine),
+            reply_markup=inline.pay_fine(cover_id, fine),
         )
     except TelegramAPIError as exc:
         logger.info("Could not deliver ban screen to %s: %s", user.id, exc)
 
 
 class DbSessionMiddleware(BaseMiddleware):
-    """Opens a DB session per update, loads/creates the user, commits on success.
+    """Opens a DB session per update, loads/creates the user and its per-cover
+    state (``user_covers``), commits on success.
 
-    Also acts as the ban guard: banned non-admin clients are intercepted before
+    One instance per cover (per dispatcher): ``data["cover"]`` / ``data["uc"]``
+    always refer to the cover of the bot that received the update.
+
+    Also acts as the ban guard: banned clients are intercepted before
     their update reaches any handler (except the unban payment flow).
 
     Must be registered as an OUTER middleware (``observer.outer_middleware``):
     inner middlewares run only after filters match a handler, so a guard there
     would silently skip every update no handler claims.
     """
+
+    def __init__(self, cover_id: int) -> None:
+        self.cover_id = cover_id
 
     async def __call__(
         self,
@@ -74,20 +82,26 @@ class DbSessionMiddleware(BaseMiddleware):
         tg_user = data.get("event_from_user")
         async with session_factory() as session:
             data["session"] = session
+            cover = await repo.get_cover(session, self.cover_id)
+            data["cover"] = cover
+            if cover is not None:
+                registry.cover_slug_var.set(cover.slug)
             user: User | None = None
-            if tg_user is not None:
+            if tg_user is not None and cover is not None:
                 user = await repo.get_or_create_user(session, tg_user)
                 data["user"] = user
+                uc = await repo.get_or_create_user_cover(session, user, cover.id)
+                uc.last_seen_at = datetime.now(timezone.utc)
+                data["uc"] = uc
             try:
                 if (
                     user is not None
                     and user.is_banned
-                    and not repo.is_admin(user)
                     and _is_private_user_event(event, data)
                     and not _allowed_while_banned(event)
                 ):
                     bot: Bot = data["bot"]
-                    await _show_ban_screen(bot, user)
+                    await _show_ban_screen(bot, user, self.cover_id)
                     if isinstance(event, CallbackQuery):
                         await event.answer()
                     result = None

@@ -1,35 +1,19 @@
 from __future__ import annotations
 
-from sqlalchemy import delete, update
+from sqlalchemy import update
 
-from app.config import get_settings
 from app.db.base import session_factory
-from app.db.models import Product, User
+from app.db.models import UserCover
+from app.states import UserState
 
-# Demo articles seeded by very old builds; purged from live databases on start.
-DEMO_ARTICLES = ("482915", "100200", "777001", "555123", "321654")
+ADMIN_STATES = tuple(s.value for s in UserState if s.name.startswith("ADMIN_"))
 
 
-async def seed() -> None:
-    settings = get_settings()
-    async with session_factory() as session:
-        await session.execute(update(User).values(is_admin=False))
-        for admin_id in settings.admin_ids:
-            user = await session.get(User, admin_id)
-            if user is None:
-                session.add(User(id=admin_id, full_name="Administrator", is_admin=True))
-            elif not user.is_admin:
-                user.is_admin = True
-
+async def reset_admin_states(factory=None) -> int:
+    """The bots' /admin panel is gone (ТЗ-2, D.5): clients stuck in an ADMIN_* state go back to the menu."""
+    async with (factory or session_factory)() as session:
+        result = await session.execute(
+            update(UserCover).where(UserCover.state.in_(ADMIN_STATES)).values(state=UserState.MENU.value)
+        )
         await session.commit()
-
-
-async def purge_demo_products() -> None:
-    """Remove leftover demo catalog rows from existing databases.
-
-    Idempotent: a no-op once the catalog is clean. Real products added via
-    /admin are never touched — only the exact demo article codes above.
-    """
-    async with session_factory() as session:
-        await session.execute(delete(Product).where(Product.article.in_(DEMO_ARTICLES)))
-        await session.commit()
+        return result.rowcount or 0

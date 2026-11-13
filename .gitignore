@@ -1,13 +1,51 @@
+# --- Secrets and runtime data (never commit) -------------------------------
+/.env
+/.env.*
+!/.env.example
+/covers/
+/data/
+/*.dump
+/*.sql
+/tybee-backup.sql
+
+# --- Python -----------------------------------------------------------------
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+.eggs/
+build/
+dist/
 .venv/
 venv/
-.env
-.env.*
-!.env.example
+.envrc
+.pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- Node / frontend --------------------------------------------------------
+site/frontend/node_modules/
+site/frontend/dist/
+site/frontend/.vite/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- OS / editors -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Local notes and agent memory ------------------------------------------
+/My/
+/.agents/
 opencode*.json
 *.log
-.DS_Store
-
