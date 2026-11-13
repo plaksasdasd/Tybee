@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+    <title>Тайби — панель управления</title>
+    <meta name="theme-color" content="#f5f7fb" />
+    <meta name="color-scheme" content="light" />
+    <script>
+      // Apply the theme before the first paint so dark mode never flashes light.
+      // No saved choice means the panel follows the system setting.
+      (function () {
+        try {
+          var saved = localStorage.getItem("tybee:theme");
+          var systemDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var dark = saved === "dark" || (saved !== "light" && systemDark);
+          var root = document.documentElement;
+          if (dark) root.dataset.theme = "dark";
+          root.style.colorScheme = dark ? "dark" : "light";
+          var color = dark ? "#0b0f19" : "#f5f7fb";
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", color);
+          var scheme = document.querySelector('meta[name="color-scheme"]');
+          if (scheme) scheme.setAttribute("content", dark ? "dark" : "light");
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="preload" as="font" type="font/woff" crossorigin href="/fonts/Gilroy-Regular.woff" />
+    <link rel="preload" as="font" type="font/woff" crossorigin href="/fonts/Gilroy-Medium.woff" />
+    <link rel="preload" as="font" type="font/woff" crossorigin href="/fonts/Gilroy-Semibold.woff" />
+    <link rel="preload" as="font" type="font/woff" crossorigin href="/fonts/Gilroy-Bold.woff" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=Golos+Text:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="/Grinya.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/cat.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Тайби" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="mobile-web-app-capable" content="yes" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

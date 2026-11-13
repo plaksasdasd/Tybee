@@ -3,6 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from pathlib import Path
 
+# Bundled banners: used only to seed covers/default (see init_default_cover).
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets" / "banners"
 
 
@@ -17,6 +18,8 @@ class Banner(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
 
-    @property
-    def path(self) -> Path:
-        return ASSETS_DIR / f"{self.value}.png"
+    def path_for(self, cover_id: int) -> Path:
+        """Banner file of a specific cover (``<cover>/banners/<banner>.png``)."""
+        from app.covers.loader import cover_banner_path
+
+        return cover_banner_path(cover_id, self)

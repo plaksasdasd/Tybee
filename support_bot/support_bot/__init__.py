@@ -1,1 +1,0 @@
-"""Standalone Telegram support bot."""

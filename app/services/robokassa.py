@@ -72,7 +72,9 @@ def valid_result_signature(out_sum: str, inv_id: str, signature: str) -> bool:
     return hmac.compare_digest(expected, signature.upper())
 
 
-async def create_unban_payment(session: AsyncSession, user: User) -> RobokassaPayment:
+async def create_unban_payment(
+    session: AsyncSession, user: User, *, cover_id: int | None = None, amount: int | None = None
+) -> RobokassaPayment:
     existing = await session.scalar(
         select(RobokassaPayment)
         .where(
@@ -83,6 +85,8 @@ async def create_unban_payment(session: AsyncSession, user: User) -> RobokassaPa
         .limit(1)
     )
     if existing is not None:
+        if cover_id is not None:
+            existing.cover_id = cover_id  # confirmation goes to the cover paid from
         return existing
     while True:
         invoice_id = secrets.randbelow(100_000_000) + 2_000_000_001
@@ -93,7 +97,8 @@ async def create_unban_payment(session: AsyncSession, user: User) -> RobokassaPa
     payment = RobokassaPayment(
         id=invoice_id,
         user_id=user.id,
-        amount=get_settings().unban_fine_rub,
+        amount=amount if amount is not None else get_settings().unban_fine_rub,
+        cover_id=cover_id,
     )
     session.add(payment)
     await session.flush()
