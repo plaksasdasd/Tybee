@@ -1,4 +1,4 @@
-﻿import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { CSSProperties, DragEvent, FormEvent, KeyboardEvent, PointerEvent, React
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, fmtDate, json, Me } from "../api";
+import { api, ApiError, fmtDate, json, Me, THREAD_TAGS, threadTagMeta, ThreadTag } from "../api";
 import { subscribeTopic, useRealtimeState } from "../realtime";
 import { ShiftRequiredDialog, useSupportSummary } from "../Shift";
 import { ChatSkeleton, SupportListSkeleton } from "../Skeletons";
@@ -21,6 +21,8 @@ import { TybeeEmptyState } from "../TybeeLogo";
 
 type Row = {
   id: number; status: string; channel: string; channel_label: string | null; cover: string | null; unread: number;
+  tag: ThreadTag | null;
+  transfer_requested_by: number | null; transfer_requested_by_name: string | null; transfer_requested_at: string | null;
   route_key: string; needs_reply: boolean; waiting_since: string | null; handoff_note: string | null; next_step: string | null; due_at: string | null;
   assigned_to: number | null; assigned_name: string | null; last_message: string; last_message_at: string | null;
   client: { id: number; name: string; username: string | null; is_banned: boolean; source?: string | null };
@@ -47,7 +49,7 @@ type OrderRow = {
 };
 type Detail = Row & {
   covers: string[]; orders: OrderRow[]; statuses: { code: string; label: string }[]; labels: Record<string, string>;
-  can_reply: boolean; can_refund: boolean;
+  can_reply: boolean; can_refund: boolean; is_foreign?: boolean;
 };
 type Stale = {
   order_id: number; title: string | null; price: number | null; status: string; status_label: string;
@@ -116,10 +118,18 @@ function AttachmentView({ a }: { a: Attachment }) {
       </div> : <small className="muted">Файл недоступен</small>}
       {error && <small className="error">{error}</small>}
       {a.is_image && blobUrl && <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="app-dialog image-viewer" aria-describedby={undefined} showCloseButton={false}>
+        <DialogContent variant="lightbox" className="app-dialog image-viewer" aria-describedby={undefined} showCloseButton={false}>
           <DialogTitle className="sr-only">{a.name || "Фотография"}</DialogTitle>
-          <img src={blobUrl} alt={a.name || "Фотография"} />
-          <DialogClose className="image-viewer-close" aria-label="Закрыть изображение"><span aria-hidden="true">×</span></DialogClose>
+          <div className="image-viewer-bar">
+            <span className="image-viewer-name" title={a.name || "Фотография"}>{a.name || "Фотография"}</span>
+            <div className="image-viewer-actions">
+              <Button type="button" className="ghost sm" onClick={() => download(blobUrl)}>Скачать</Button>
+              <DialogClose className="image-viewer-close" aria-label="Закрыть изображение"><span aria-hidden="true">×</span></DialogClose>
+            </div>
+          </div>
+          <div className="image-viewer-stage">
+            <img src={blobUrl} alt={a.name || "Фотография"} />
+          </div>
         </DialogContent>
       </Dialog>}
     </div>
@@ -165,7 +175,10 @@ const orderTone = (status: string) =>
 const DONE: [RegExp, string][] = [
   [/\/claim$/, "Диалог взят в работу"],
   [/\/close$/, "Диалог закрыт"],
+  [/\/no-reply$/, "Отмечено: ответ не требуется"],
   [/\/transfer$/, "Диалог передан"],
+  [/\/transfer-request$/, "Запрос на передачу отправлен"],
+  [/\/transfer-request\/resolve$/, "Запрос на передачу обработан"],
   [/\/notes$/, "Заметка сохранена"],
   [/\/retry$/, "Сообщение отправлено повторно"],
   [/\/invoice$/, "Счёт выставлен"],
@@ -266,7 +279,6 @@ function StartDialogModal({ me, onClose, onOpen }: { me: Me; onClose: () => void
               <div className="sup-start-results">
                 {results.data?.items.map((c) => (
                   <button type="button" key={c.id} className="sup-start-hit" onClick={() => { setPicked(c); setErr(""); }}>
-                    <span className="sup-start-avatar" aria-hidden="true">{c.name.trim().slice(0, 1).toUpperCase()}</span>
                     <span className="sup-start-who">
                       <b>{c.name}</b>
                       {c.username && <small>@{c.username}</small>}
@@ -395,6 +407,11 @@ function ChatPeek({ row, top, left }: { row: Row; top: number; left: number }) {
         <b>{row.client.name}</b>
         <small className="muted">{row.channel === "avito" ? row.channel_label ?? "Avito" : row.cover ?? "Telegram"}</small>
       </div>
+      {threadTagMeta(row.tag) && (
+        <div className="sup-peek-tags">
+          <span className={`sup-tag-badge tone-${threadTagMeta(row.tag)!.tone}`}>{threadTagMeta(row.tag)!.label}</span>
+        </div>
+      )}
       {last ? (
         <>
           <div className="sup-peek-label">Последний заказ</div>
@@ -444,7 +461,6 @@ function ChatPeek({ row, top, left }: { row: Row; top: number; left: number }) {
 function List({ me, current }: { me: Me; current?: number }) {
   const nav = useNavigate();
   const { connected: live } = useRealtimeState();
-  const canAll = me.permissions.includes("support.view_all");
   // Desktop hover preview: show the client's last order next to the row after a short pause.
   const [peek, setPeek] = useState<{ row: Row; top: number; left: number } | null>(null);
   const peekTimer = useRef<number | null>(null);
@@ -470,20 +486,21 @@ function List({ me, current }: { me: Me; current?: number }) {
   };
   const [scope, setScope] = useState<"mine" | "queue" | "all" | "stale" | "waiting">("waiting");
   const [payment, setPayment] = useState<"all" | "invoiced" | "paid">("all");
+  const [tagFilter, setTagFilter] = useState<string>("");
   const [q, setQ] = useState("");
   const [startOpen, setStartOpen] = useState(false);
   const qc = useQueryClient();
   const list = useInfiniteQuery({
-    queryKey: ["support-threads", scope, payment, q],
+    queryKey: ["support-threads", scope, payment, tagFilter, q],
     initialPageParam: "",
-    queryFn: ({ pageParam }) => api<ThreadPage>(`/api/support/threads?paginated=true&scope=${scope}&payment=${payment}&q=${encodeURIComponent(q)}&cursor=${encodeURIComponent(pageParam)}`),
+    queryFn: ({ pageParam }) => api<ThreadPage>(`/api/support/threads?paginated=true&scope=${scope}&payment=${payment}${tagFilter ? `&tag=${encodeURIComponent(tagFilter)}` : ""}&q=${encodeURIComponent(q)}&cursor=${encodeURIComponent(pageParam)}`),
     getNextPageParam: (page) => page.next_cursor || undefined,
     refetchInterval: live ? 60_000 : 15_000,
     enabled: scope !== "stale",
   });
   const rows = [...new Map((list.data?.pages.flatMap((p) => p.items) ?? []).map((t) => [t.id, t])).values()];
   const tabs = (
-    <><div className="sup-list-heading" data-guide="support-list"><div><h1>Обращения</h1><p>Диалоги с клиентами</p></div><Button data-guide="start-dialog" onClick={() => setStartOpen(true)}>Написать клиенту</Button></div><Tabs value={scope} onValueChange={(value) => setScope(value as typeof scope)}><TabsList className="app-tabs"><TabsTrigger value="waiting">Нужен ответ</TabsTrigger><TabsTrigger value="mine">Мои</TabsTrigger><TabsTrigger value="queue">Очередь</TabsTrigger>{canAll && <TabsTrigger value="all">Все</TabsTrigger>}<TabsTrigger value="stale">Зависшие заказы</TabsTrigger></TabsList></Tabs>
+    <><div className="sup-list-heading" data-guide="support-list"><div><h1>Обращения</h1><p>Диалоги с клиентами</p></div><Button data-guide="start-dialog" onClick={() => setStartOpen(true)}>Написать клиенту</Button></div><Tabs value={scope} onValueChange={(value) => setScope(value as typeof scope)}><TabsList className="app-tabs"><TabsTrigger value="waiting">Нужен ответ</TabsTrigger><TabsTrigger value="mine">Мои</TabsTrigger><TabsTrigger value="queue">Очередь</TabsTrigger><TabsTrigger value="all">Все</TabsTrigger><TabsTrigger value="stale">Зависшие заказы</TabsTrigger></TabsList></Tabs>
       {startOpen && <StartDialogModal me={me} onClose={() => setStartOpen(false)} onOpen={(threadId) => {
         qc.invalidateQueries({ queryKey: ["support-threads"] });
         qc.invalidateQueries({ queryKey: ["support-summary"] });
@@ -501,16 +518,24 @@ function List({ me, current }: { me: Me; current?: number }) {
         <button type="button" className={payment === "invoiced" ? "sup-pay-chip active" : "sup-pay-chip"} onClick={() => setPayment(payment === "invoiced" ? "all" : "invoiced")}>🧾 Выставлен счёт</button>
         <button type="button" className={payment === "paid" ? "sup-pay-chip active" : "sup-pay-chip"} onClick={() => setPayment(payment === "paid" ? "all" : "paid")}>💳 Оплачен счёт</button>
       </div>
+      <div className="sup-tag-filter">
+        <CustomSelect aria-label="Фильтр по тегу" value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+          <option value="">Все теги</option>
+          {THREAD_TAGS.map((tg) => <option key={tg.code} value={tg.code}>{tg.label}</option>)}
+          <option value="none">Без тега</option>
+        </CustomSelect>
+      </div>
       <Input type="search" placeholder="Поиск клиента" value={q} onChange={(e) => setQ(e.target.value)} />
       {list.error && <p className="error">{list.error.message}</p>}
       {list.isLoading && <SupportListSkeleton rows={6} />}
       {list.data && list.data.pages[0].total > 0 && <small className="muted">Показано {rows.length} из {list.data.pages[0].total}</small>}
       {!list.isLoading && rows.length === 0 && <p className="muted">Обращений нет</p>}
-      {rows.map((t) => (
+      {rows.map((t) => {
+        const tagMeta = threadTagMeta(t.tag);
+        return (
         <div key={t.id} className={`sup-row ${t.id === current ? "active" : ""} ${t.status}`}
           onPointerEnter={(e) => { if (e.pointerType === "mouse") showPeek(t, e.currentTarget); }} onPointerLeave={hidePeek}
           onClick={() => { hidePeek(); nav(`/support/${t.id}`); }}>
-          <div className="sup-row-avatar" aria-hidden="true">{t.client.name.trim().slice(0, 1).toUpperCase()}</div>
           <div className="sup-row-content">
           <div className="sup-row-head">
             <b>{t.client.name}</b>
@@ -518,6 +543,7 @@ function List({ me, current }: { me: Me; current?: number }) {
             {t.has_invoiced_order && <span className="badge wait" title="Есть выставленный счёт">🧾</span>}
             {t.unread > 0 && <span className="badge bad">{t.unread}</span>}
           </div>
+          {tagMeta && <div className="sup-row-tags"><span className={`sup-tag-badge tone-${tagMeta.tone}`}>{tagMeta.label}</span></div>}
           <small className="muted">
             {t.channel === "avito" ? t.channel_label ?? "Avito" : t.cover ?? "—"}
             {scope === "all" && ` · ${t.assigned_name ?? "в очереди"}`}
@@ -528,7 +554,8 @@ function List({ me, current }: { me: Me; current?: number }) {
           {t.next_step && <small className="muted">Следующий шаг: {t.next_step}{t.due_at && ` · ${fmtDate(t.due_at)}`}</small>}
           </div>
         </div>
-      ))}
+        );
+      })}
       {list.hasNextPage && <Button className="ghost" disabled={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>{list.isFetchingNextPage ? "Загрузка…" : "Загрузить ещё обращения"}</Button>}
       {peek && createPortal(<ChatPeek row={peek.row} top={peek.top} left={peek.left} />, document.body)}
     </div>
@@ -839,12 +866,19 @@ function Chat({ me, id }: { me: Me; id: number }) {
     const box = messagesBox.current;
     return () => { window.removeEventListener("focus", markRead); document.removeEventListener("visibilitychange", markRead); box?.removeEventListener("scroll", markRead); };
   }, [msgs.data, detail.data?.assigned_to, id, me.telegram_id, qc]);
+  const setTag = useMutation({
+    mutationFn: (tag: string | null) => api(`/api/support/threads/${id}/tag`, json("PATCH", { tag })),
+    onSuccess: () => { setErr(""); refresh(); toast("Тег обновлён"); },
+    onError: (e: Error) => setErr(e.message),
+  });
   const d = detail.data;
   if (detail.error) return <Card className="card"><p className="error">{(detail.error as Error).message}</p></Card>;
   if (!d) return <div className="sup-chat"><ChatSkeleton /></div>;
-  const mine = d.can_reply;
+  const canReply = d.can_reply;
+  const isResponsible = d.assigned_to === me.telegram_id || me.role === "admin";
+  const isForeign = d.assigned_to !== null && d.assigned_to !== me.telegram_id;
   // Drag & drop: a file dropped anywhere on the chat becomes the attachment.
-  const canDrop = mine && mode === "reply" && !sendReply.isPending;
+  const canDrop = canReply && mode === "reply" && !sendReply.isPending;
   const acceptFile = (picked: File | null) => {
     if (picked) pickDialogFile(picked, pickFile, setErr);
   };
@@ -872,7 +906,7 @@ function Chat({ me, id }: { me: Me; id: number }) {
     setDragging(false);
     acceptFile(event.dataTransfer.files?.[0] ?? null);
   };
-  const canAssign = mine || me.permissions.includes("support.assign");
+  const canAssign = isResponsible || me.permissions.includes("support.assign");
   const canInvoice = me.permissions.includes("orders.invoice");
   const search = orderSearch.trim().toLocaleLowerCase("ru-RU").replace(/^#/, "");
   const orders = [...(d.orders ?? [])]
@@ -925,7 +959,6 @@ function Chat({ me, id }: { me: Me; id: number }) {
       )}
       <Card className="card sup-main" data-guide="chat">
         <div className={`head${headerExpanded ? " is-expanded" : ""}`} data-guide="chat-head">
-          <div className="sup-chat-avatar" aria-hidden="true">{d.client.name.trim().slice(0, 1).toUpperCase()}</div>
           <div className="sup-chat-identity">
             <b>{d.client.name}</b> {d.client.username && <span className="muted">@{d.client.username}</span>}
             <div className="muted">{d.assigned_name ? `Ведёт: ${d.assigned_name}` : "В очереди"}{d.status === "closed" && " · закрыта"}</div>
@@ -935,17 +968,43 @@ function Chat({ me, id }: { me: Me; id: number }) {
           {d.assigned_to === null && <Button className="sup-claim-mobile" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/claim` })}>Взять</Button>}
           <button type="button" className="sup-header-toggle" aria-label="Действия с диалогом" aria-expanded={headerExpanded} onClick={() => setHeaderExpanded(!headerExpanded)}>⋮</button>
           <div className="row-actions">
+            <CustomSelect className="sup-tag-select" aria-label="Тег диалога" value={d.tag ?? ""} disabled={setTag.isPending} onChange={(e) => setTag.mutate(e.target.value || null)}>
+              <option value="">Без тега</option>
+              {THREAD_TAGS.map((tg) => <option key={tg.code} value={tg.code}>{tg.label}</option>)}
+            </CustomSelect>
+            {d.needs_reply && <Button className="ghost" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/no-reply` })}>Ответ не требуется</Button>}
             <Button className="ghost" onClick={() => setSearchOpen(!searchOpen)}>Поиск в чате</Button>
             <Button className="ghost" data-guide="client-button" onClick={() => setClientOpen(true)}>Клиент и заказы ({d.orders?.length ?? 0})</Button>
-            {canInvoice && (mine || d.can_refund) && <Button data-guide="invoice" onClick={() => setModal("invoice")}>Счёт</Button>}
-            {mine && <Button className={d.client.is_banned ? "ghost" : "bad"} onClick={() => act.mutate({ path: `threads/${id}/ban`, body: { banned: !d.client.is_banned } })}>
+            {canInvoice && (isResponsible || d.can_refund) && <Button data-guide="invoice" onClick={() => setModal("invoice")}>Счёт</Button>}
+            {isResponsible && <Button className={d.client.is_banned ? "ghost" : "bad"} onClick={() => act.mutate({ path: `threads/${id}/ban`, body: { banned: !d.client.is_banned } })}>
               {d.client.is_banned ? "Разбанить" : "Забанить"}
             </Button>}
             {d.assigned_to === null && <Button onClick={() => act.mutate({ path: `threads/${id}/claim` })}>Взять</Button>}
             {canAssign && <Button className="ghost" onClick={() => setModal("transfer")}>Передать</Button>}
-            {mine && d.status === "open" && <Button className="ghost" onClick={() => confirm("Закрыть диалог? Клиент получит уведомление.") && act.mutate({ path: `threads/${id}/close` })}>Закрыть</Button>}
+            {isResponsible && d.status === "open" && <Button className="ghost" onClick={() => confirm("Закрыть диалог? Клиент получит уведомление.") && act.mutate({ path: `threads/${id}/close` })}>Закрыть</Button>}
           </div>
         </div>
+        {isForeign && (
+          <div className="sup-foreign-banner" role="status">
+            <span>⚠️ <b>Чужая ветка</b> — её ведёт {d.assigned_name ?? "другой сотрудник"}. Вы можете написать клиенту, но ответственным остаётся он.</span>
+            {d.transfer_requested_by === me.telegram_id ? (
+              <span className="sup-transfer-sent">Запрос на передачу отправлен</span>
+            ) : (
+              <Button type="button" className="ghost sm" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/transfer-request` })}>
+                Запросить передачу
+              </Button>
+            )}
+          </div>
+        )}
+        {d.assigned_to === me.telegram_id && d.transfer_requested_by && (
+          <div className="sup-transfer-banner" role="status">
+            <span>🔄 <b>{d.transfer_requested_by_name ?? "Сотрудник"}</b> запрашивает передачу этой ветки.</span>
+            <div className="row-actions">
+              <Button type="button" className="sm" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/transfer-request/resolve`, body: { approve: true } })}>Передать</Button>
+              <Button type="button" className="ghost sm" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/transfer-request/resolve`, body: { approve: false } })}>Отклонить</Button>
+            </div>
+          </div>
+        )}
         {searchOpen && <div className="sup-chat-search">
           <Input type="search" maxLength={200} aria-label="Поиск в переписке" placeholder="Найти фразу в полной истории" value={messageSearch} onChange={(e) => setMessageSearch(e.target.value)} />
           {searchResults.error && <p className="error">{searchResults.error.message}</p>}
@@ -956,7 +1015,7 @@ function Chat({ me, id }: { me: Me; id: number }) {
           {jumping && <small role="status">Загружаем историю до выбранного сообщения…</small>}
         </div>}
         {(d.handoff_note || d.next_step) && <div className={`sup-handoff${headerExpanded ? " is-expanded" : ""}`}><b>Контекст передачи / следующий шаг</b>{d.handoff_note && <p>{d.handoff_note}</p>}{d.next_step && <p>{d.next_step}{d.due_at && ` · до ${fmtDate(d.due_at)}`}</p>}
-          {mine && d.next_step && <Button className="ghost" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/notes`, body: { text: `Шаг выполнен: ${d.next_step}`, next_step: "" } })}>Шаг выполнен</Button>}
+          {isResponsible && d.next_step && <Button className="ghost" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/notes`, body: { text: `Шаг выполнен: ${d.next_step}`, next_step: "" } })}>Шаг выполнен</Button>}
         </div>}
         <div className="sup-messages-area">
         <div className="sup-msgs" ref={messagesBox}
@@ -999,7 +1058,7 @@ function Chat({ me, id }: { me: Me; id: number }) {
                 {m.delivery && <span className={m.delivery === "failed" || m.delivery === "uncertain" ? "error" : ""} title={m.error ?? ""}>{DELIVERY[m.delivery]}</span>}
               </small>
               {(m.delivery === "failed" || m.delivery === "uncertain") && <div className="sup-delivery-error"><p>{m.error || "Канал не подтвердил отправку"}</p>
-                {mine && m.can_retry && <Button className="ghost" disabled={act.isPending} onClick={() => {
+                {canReply && m.can_retry && <Button className="ghost" disabled={act.isPending} onClick={() => {
                   const uncertain = m.delivery === "uncertain";
                   if (uncertain && !confirm("Канал не подтвердил результат, но сообщение могло уйти. Повтор может создать дубликат. Повторить?")) return;
                   act.mutate({ path: `threads/${id}/messages/${m.id}/retry`, body: { confirm_uncertain: uncertain } });
@@ -1068,7 +1127,7 @@ function Chat({ me, id }: { me: Me; id: number }) {
         <p className="muted">ID {d.client.id}{d.client.source ? ` · ${d.client.source}` : ""}<br />Обложки: {d.covers?.join(", ") || "—"}{d.channel_label && <><br />Канал: {d.channel_label}</>}</p>
         {d.client.is_banned && <p className="error">Клиент забанен</p>}
         <h2>Заказы</h2>
-        {canInvoice && (mine || d.can_refund) && <Button onClick={() => { setClientOpen(false); setModal("invoice"); }}>Выставить счёт</Button>}
+        {canInvoice && (isResponsible || d.can_refund) && <Button onClick={() => { setClientOpen(false); setModal("invoice"); }}>Выставить счёт</Button>}
         <Input type="search" aria-label="Поиск по заказам" placeholder="Номер заказа, название или статус" value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} />
         <small className="muted">Сначала новые · {orders.length} из {d.orders?.length ?? 0}</small>
         {!d.orders?.length && <p className="muted">Заказов нет</p>}
@@ -1079,7 +1138,7 @@ function Chat({ me, id }: { me: Me; id: number }) {
             <small className="muted">Создан {fmtDate(o.created_at)}</small>
             <div className="muted">{d.labels?.[o.status] ?? o.status}</div>
             {o.operations && <div className="muted">Оплата: {o.operations.paid_at ? `${o.operations.paid_amount ?? 0} ₽ · ${fmtDate(o.operations.paid_at)}` : "не подтверждена"}<br />Возврат: {o.operations.refunded_at ? `${o.operations.refund_amount ?? 0} ₽ · ${fmtDate(o.operations.refunded_at)}` : "не зарегистрирован"}</div>}
-            {(mine || d.can_refund || me.permissions.includes("buyout.manage")) && (
+            {(isResponsible || d.can_refund || me.permissions.includes("buyout.manage")) && (
               <CustomSelect disabled={act.isPending || !o.allowed_transitions?.length} value="" onChange={(e) => {
                 const v = e.target.value;
                 if (!v) return;
@@ -1090,8 +1149,8 @@ function Chat({ me, id }: { me: Me; id: number }) {
                 {(o.allowed_transitions ?? []).map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
               </CustomSelect>
             )}
-            {mine && !o.can_ping && o.next_ping_at && new Date(o.next_ping_at).getTime() > Date.now() && <small className="muted">Повторить напоминание после {fmtDate(o.next_ping_at)}</small>}
-            {mine && o.can_ping && (
+            {isResponsible && !o.can_ping && o.next_ping_at && new Date(o.next_ping_at).getTime() > Date.now() && <small className="muted">Повторить напоминание после {fmtDate(o.next_ping_at)}</small>}
+            {isResponsible && o.can_ping && (
               <Button className="ghost" disabled={act.isPending} title={o.last_ping_at ? `Последнее напоминание: ${fmtDate(o.last_ping_at)}` : ""}
                 onClick={() => act.mutate({ path: `orders/${o.id}/ping` })}>🔔 Напомнить</Button>
             )}

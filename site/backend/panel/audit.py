@@ -23,8 +23,10 @@ _STAFF_TARGET = (
     "staff.role.", "staff.invite.accept", "support.release", "support.shift", "broadcast.test",
     "finance.requisites.",
 )
-_THREAD_TARGET = ("support.reply", "support.claim", "support.transfer", "support.close", "support.invoice",
-                  "support.ban", "support.unban")
+_THREAD_TARGET = (
+    "support.reply", "support.claim", "support.transfer", "support.transfer_request", "support.transfer_reject",
+    "support.close", "support.no_reply", "support.tag", "support.invoice", "support.ban", "support.unban",
+)
 _REPORTS = {"operations": "операции", "staff": "по сотрудникам", "revenue": "выручка"}
 
 

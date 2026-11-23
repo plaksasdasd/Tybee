@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import asyncio
+import html
 import logging
 import base64
 import json
@@ -35,7 +36,7 @@ from app.db.models import (
 from app.support import actions, assign, notify, shift
 from app.support import attachments as files
 from app.services.notify import resolve_dialog_cover
-from app.support.common import FINAL_STATUSES, NO_PING_STATUSES, ORDER_STATUS_LABELS, ORDER_STATUSES, PAID, SETTABLE, SupportError, now, ts
+from app.support.common import FINAL_STATUSES, NO_PING_STATUSES, ORDER_STATUS_LABELS, ORDER_STATUSES, PAID, SETTABLE, THREAD_TAGS, SupportError, now, ts
 from panel import idempotency
 from panel.audit import write_audit
 from panel.auth import csrf_guard, current_staff, require_perm
@@ -166,7 +167,9 @@ async def _thread_rows(
             ).distinct()
         )
     )
-    staff_ids = {t.assigned_to for t in threads if t.assigned_to is not None}
+    staff_ids = {t.assigned_to for t in threads if t.assigned_to is not None} | {
+        t.transfer_requested_by for t in threads if t.transfer_requested_by is not None
+    }
     names = {}
     if staff_ids:
         names = dict((await session.execute(select(Staff.telegram_id, Staff.display_name).where(Staff.telegram_id.in_(staff_ids)))).all())
@@ -212,6 +215,10 @@ async def _thread_rows(
                 "username": u.username if u else None, "is_banned": bool(u and u.is_banned),
             },
             "assigned_to": t.assigned_to, "assigned_name": names.get(t.assigned_to),
+            "tag": t.tag,
+            "transfer_requested_by": t.transfer_requested_by,
+            "transfer_requested_by_name": names.get(t.transfer_requested_by),
+            "transfer_requested_at": _iso(t.transfer_requested_at),
             "route_key": f"{t.channel}:{t.last_avito_chat_ref if t.channel == 'avito' else t.last_cover_id}",
             "needs_reply": t.needs_reply, "waiting_since": _iso(t.waiting_since),
             "handoff_note": t.handoff_note, "next_step": t.next_step, "due_at": _iso(t.due_at),
@@ -367,6 +374,7 @@ def _waiting_conditions(me: Staff) -> list[Any]:
 async def list_threads(
     scope: str = Query("mine", pattern="^(mine|queue|all|waiting)$"),
     payment: str = Query("all", pattern="^(all|invoiced|paid)$"),
+    tag: str | None = Query(None),
     status: str | None = Query(None, pattern="^(open|closed)$"),
     q: str | None = None,
     after: datetime | None = None,
@@ -397,6 +405,13 @@ async def list_threads(
         stmt = stmt.where(SupportThread.user_id.in_(inv_sub))
     if status:
         stmt = stmt.where(SupportThread.status == status)
+    if tag:
+        if tag == "none":
+            stmt = stmt.where(SupportThread.tag.is_(None))
+        elif tag in THREAD_TAGS:
+            stmt = stmt.where(SupportThread.tag == tag)
+        else:
+            raise HTTPException(422, "Неизвестный тег")
     if after:
         stmt = stmt.where(SupportThread.last_message_at > after)
     if q and q.strip():
@@ -529,7 +544,8 @@ async def get_thread(thread_id: int, me: Staff = Depends(require_perm(Perm.SUPPO
         })
     row["statuses"] = [{"code": c, "label": l} for c, l in ORDER_STATUSES if c in SETTABLE]
     row["labels"] = ORDER_STATUS_LABELS
-    row["can_reply"] = _responsible(thread, me)
+    row["can_reply"] = True
+    row["is_foreign"] = bool(thread.assigned_to is not None and thread.assigned_to != me.telegram_id)
     row["can_refund"] = Perm.REFUNDS_MANAGE in perms_of(me)
     return row
 
@@ -939,10 +955,10 @@ async def start_client_dialog(
 
 @router.post("/support/threads/{thread_id}/reply", status_code=201)
 async def reply(thread_id: int, request: Request, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
-    thread = await _get_thread(session, thread_id, me, responsible=True)
+    await _get_thread(session, thread_id, me)
     thread = await session.scalar(select(SupportThread).where(SupportThread.id == thread_id).with_for_update().execution_options(populate_existing=True))
-    if not _responsible(thread, me):
-        raise HTTPException(409, "Ответственный изменился. Обновите диалог")
+    if thread is None:
+        raise HTTPException(404, "Ветка не найдена")
     request_key = request.headers.get("Idempotency-Key")
     if request_key and not re.fullmatch(r"[a-zA-Z0-9-]{16,64}", request_key):
         raise HTTPException(422, "Неверный ключ отправки")
@@ -1050,6 +1066,127 @@ async def close(thread_id: int, me: Staff = Depends(require_perm(Perm.SUPPORT_CH
     await actions.close_thread(session, thread, me)
     await write_audit(session, me, "support.close", str(thread_id))
     await session.commit()
+    return {"ok": True}
+
+
+@router.post("/support/threads/{thread_id}/no-reply")
+async def no_reply(thread_id: int, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
+    await _get_thread(session, thread_id, me)
+    thread = await session.scalar(select(SupportThread).where(SupportThread.id == thread_id).with_for_update().execution_options(populate_existing=True))
+    if thread is None:
+        raise HTTPException(404, "Ветка не найдена")
+    max_id = await session.scalar(select(func.max(SupportThreadMessage.id)).where(SupportThreadMessage.thread_id == thread_id))
+    thread.needs_reply = False
+    thread.waiting_since = None
+    thread.unread = 0
+    if max_id:
+        thread.read_through_id = max(thread.read_through_id or 0, int(max_id))
+    await write_audit(session, me, "support.no_reply", str(thread_id))
+    await session.commit()
+    return {"ok": True}
+
+
+class TagBody(BaseModel):
+    tag: str | None = None
+
+
+@router.patch("/support/threads/{thread_id}/tag")
+async def set_tag(thread_id: int, body: TagBody, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
+    await _get_thread(session, thread_id, me)
+    tag = (body.tag or "").strip() or None
+    if tag is not None and tag not in THREAD_TAGS:
+        raise HTTPException(422, "Неизвестный тег")
+    thread = await session.scalar(select(SupportThread).where(SupportThread.id == thread_id).with_for_update().execution_options(populate_existing=True))
+    if thread is None:
+        raise HTTPException(404, "Ветка не найдена")
+    thread.tag = tag
+    await write_audit(session, me, "support.tag", str(thread_id), {"tag": tag})
+    await session.commit()
+    return {"ok": True, "tag": thread.tag}
+
+
+@router.post("/support/threads/{thread_id}/transfer-request")
+async def request_transfer(thread_id: int, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
+    await _get_thread(session, thread_id, me)
+    thread = await session.scalar(select(SupportThread).where(SupportThread.id == thread_id).with_for_update().execution_options(populate_existing=True))
+    if thread is None:
+        raise HTTPException(404, "Ветка не найдена")
+    if thread.assigned_to is None:
+        raise HTTPException(409, "Ветка свободна — её можно просто взять в работу")
+    if thread.assigned_to == me.telegram_id:
+        raise HTTPException(409, "Эта ветка уже закреплена за вами")
+    owner_id = thread.assigned_to
+    user = await session.get(User, thread.user_id)
+    client_name = (user.full_name if user else "") or str(thread.user_id)
+    thread.transfer_requested_by = me.telegram_id
+    thread.transfer_requested_at = now()
+    await write_audit(session, me, "support.transfer_request", str(thread_id), {"owner": owner_id})
+    await session.commit()
+    await notify.send_staff_messages([
+        (
+            owner_id,
+            f"🔄 <b>Запрос передачи ветки #{thread.id}</b>\n"
+            f"{html.escape(me.display_name)} просит передать диалог с клиентом {html.escape(client_name)}.",
+            f"/support/{thread.id}",
+        )
+    ])
+    return {"ok": True, "transfer_requested_by": thread.transfer_requested_by, "transfer_requested_at": _iso(thread.transfer_requested_at)}
+
+
+class TransferResolveBody(BaseModel):
+    approve: bool
+
+
+@router.post("/support/threads/{thread_id}/transfer-request/resolve")
+async def resolve_transfer_request(
+    thread_id: int, body: TransferResolveBody, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)
+):
+    await _get_thread(session, thread_id, me)
+    thread = await session.scalar(select(SupportThread).where(SupportThread.id == thread_id).with_for_update().execution_options(populate_existing=True))
+    if thread is None:
+        raise HTTPException(404, "Ветка не найдена")
+    if thread.transfer_requested_by is None:
+        raise HTTPException(409, "Активного запроса на передачу нет")
+    if thread.assigned_to != me.telegram_id and Perm.SUPPORT_ASSIGN not in perms_of(me) and me.role != StaffRole.ADMIN.value:
+        raise HTTPException(403, "Решить запрос может ответственный за ветку")
+    requester_id = thread.transfer_requested_by
+    user = await session.get(User, thread.user_id)
+    client_name = (user.full_name if user else "") or str(thread.user_id)
+    if body.approve:
+        requester = await session.get(Staff, requester_id)
+        if requester is None or not requester.is_active or Perm.SUPPORT_CHAT not in perms_of(requester):
+            raise HTTPException(422, "Сотрудник не может вести поддержку")
+        try:
+            await assign.transfer(session, thread, requester, me)
+            session.add(SupportThreadMessage(
+                thread_id=thread.id, direction="internal", kind="handoff", staff_id=me.telegram_id,
+                body=f"Ветка передана по запросу сотрудника {requester.display_name}",
+            ))
+        except SupportError as exc:
+            raise _wrap(exc) from None
+        await write_audit(session, me, "support.transfer", str(thread_id), {"to": requester.telegram_id, "by_request": True})
+        await session.commit()
+        await notify.send_staff_messages([
+            (
+                requester_id,
+                f"✅ <b>Запрос на передачу ветки #{thread.id} одобрен</b>\n"
+                f"{html.escape(me.display_name)} передал(а) вам диалог с клиентом {html.escape(client_name)}.",
+                f"/support/{thread.id}",
+            )
+        ])
+    else:
+        thread.transfer_requested_by = None
+        thread.transfer_requested_at = None
+        await write_audit(session, me, "support.transfer_reject", str(thread_id), {"requester": requester_id})
+        await session.commit()
+        await notify.send_staff_messages([
+            (
+                requester_id,
+                f"❌ <b>Запрос на передачу ветки #{thread.id} отклонён</b>\n"
+                f"{html.escape(me.display_name)} оставил(а) диалог с клиентом {html.escape(client_name)} за собой.",
+                f"/support/{thread.id}",
+            )
+        ])
     return {"ok": True}
 
 
@@ -1288,14 +1425,14 @@ class NoteBody(BaseModel):
 
 @router.post("/support/threads/{thread_id}/notes", status_code=201)
 async def add_note(thread_id: int, body: NoteBody, request: Request, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
-    thread = await _get_thread(session, thread_id, me, responsible=True)
+    await _get_thread(session, thread_id, me)
     if not body.text.strip():
         raise HTTPException(422, "Пустая заметка")
     if body.due_at and (body.due_at.tzinfo is None or not body.next_step):
         raise HTTPException(422, "Укажите следующий шаг и часовой пояс срока")
     thread = await session.scalar(select(SupportThread).where(SupportThread.id == thread_id).with_for_update().execution_options(populate_existing=True))
-    if not _responsible(thread, me):
-        raise HTTPException(409, "Ответственный изменился. Обновите диалог")
+    if thread is None:
+        raise HTTPException(404, "Ветка не найдена")
     key = request.headers.get("Idempotency-Key")
     if key and not re.fullmatch(r"[a-zA-Z0-9-]{16,64}", key):
         raise HTTPException(422, "Неверный ключ заметки")
@@ -1321,7 +1458,7 @@ class RetryBody(BaseModel):
 
 @router.post("/support/threads/{thread_id}/messages/{message_id}/retry")
 async def retry_message(thread_id: int, message_id: int, body: RetryBody, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
-    await _get_thread(session, thread_id, me, responsible=True)
+    await _get_thread(session, thread_id, me)
     message = await session.get(SupportThreadMessage, message_id)
     if not message or message.thread_id != thread_id or message.direction != "staff" or not message.outbox_id:
         raise HTTPException(404, "Исходящее сообщение не найдено")

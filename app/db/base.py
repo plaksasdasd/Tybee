@@ -108,6 +108,10 @@ _COLUMN_PATCHES = (
     "UPDATE staff_shifts SET ended_at = CURRENT_TIMESTAMP, end_reason = 'deactivated' "
     "WHERE ended_at IS NULL AND id NOT IN (SELECT MAX(id) FROM staff_shifts WHERE ended_at IS NULL GROUP BY staff_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_open_shift ON staff_shifts(staff_id) WHERE ended_at IS NULL",
+    "ALTER TABLE support_threads ADD COLUMN IF NOT EXISTS tag VARCHAR(24)",
+    "ALTER TABLE support_threads ADD COLUMN IF NOT EXISTS transfer_requested_by BIGINT",
+    "ALTER TABLE support_threads ADD COLUMN IF NOT EXISTS transfer_requested_at TIMESTAMPTZ",
+    "UPDATE support_thread_messages SET direction = 'system' WHERE kind IN ('payment_success', 'payment_after_cancel') AND direction = 'client'",
 )
 
 AVITO_ID_BASE = 10 ** 12

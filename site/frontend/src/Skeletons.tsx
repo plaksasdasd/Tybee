@@ -162,7 +162,6 @@ export function AppShellSkeleton() {
           <div className="brand-logo-link">
             <img src="/logobig.png" alt="tybee" className="brand-logo-img" />
           </div>
-          <span className="brand-tag">панель</span>
         </div>
         <div className="sk-nav">
           {[74, 58, 82, 66, 50, 70, 60].map((width, i) => (

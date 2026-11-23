@@ -97,8 +97,12 @@ export const AUDIT_GROUPS: Record<string, string> = {
   auth: "Вход", staff: "Сотрудники", support: "Поддержка", finance: "Финансы", catalog: "Каталог",
   cover: "Боты-обложки", avito: "Авито", robokassa: "Robokassa", broadcast: "Рассылки",
 };
-const AUDIT_ACTIONS: Record<string, string> = {
+export const AUDIT_ACTIONS: Record<string, string> = {
   "support.note": "Внутренняя заметка",
+  "support.no_reply": "Ответ не требуется",
+  "support.tag": "Изменён тег диалога",
+  "support.transfer_request": "Запрос передачи ветки",
+  "support.transfer_reject": "Запрос передачи отклонён",
   "support.retry": "Повтор отправки сообщения",
   "support.template.create": "Создан шаблон ответа",
   "support.template.update": "Изменён шаблон ответа",
@@ -211,3 +215,13 @@ export const auditLabel = (action: string, details?: Record<string, unknown> | n
   }
   return AUDIT_ACTIONS[action] ?? action;
 };
+
+export type ThreadTag = "hopeless" | "site" | "potential" | "warm";
+export const THREAD_TAGS: { code: ThreadTag; label: string; tone: string }[] = [
+  { code: "hopeless", label: "Безнадёжный", tone: "bad" },
+  { code: "site", label: "Сайтовый", tone: "info" },
+  { code: "potential", label: "Потенциальный", tone: "wait" },
+  { code: "warm", label: "Гретый", tone: "ok" },
+];
+export const threadTagMeta = (tag: string | null | undefined) =>
+  THREAD_TAGS.find((t) => t.code === tag) ?? null;

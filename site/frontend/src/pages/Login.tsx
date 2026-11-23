@@ -144,7 +144,6 @@ export default function Login() {
         </div>
         <div className="login-brand-row">
           <span className="login-brand-name">tybee</span>
-          <span className="login-title-tag">панель</span>
         </div>
         <p className="muted">Личный байер иностранных товаров · Вход для сотрудников</p>
         {!cfg && <div className="" aria-hidden="true"><Skeleton style={{ width: "100%", height: 42, borderRadius: 9, marginTop: 8 }} /><Skeleton style={{ width: "62%", height: 12, marginTop: 14 }} /></div>}

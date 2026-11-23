@@ -40,6 +40,13 @@ SETTABLE = frozenset({*DELIVERY, "refund_pending", "refunded", "cancelled"})
 # Roles that receive Telegram notifications for new clients and unassigned requests.
 NOTIFY_ROLES = ("client_manager_1", "client_manager_2", "support_lead", "arbitration_agent", "admin")
 
+THREAD_TAGS: dict[str, str] = {
+    "hopeless": "Безнадёжный",
+    "site": "Сайтовый",
+    "potential": "Потенциальный",
+    "warm": "Гретый",
+}
+
 
 class SupportError(Exception):
     def __init__(self, message: str, status: int = 409, *, retry_after: int | None = None):

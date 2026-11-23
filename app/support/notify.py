@@ -80,16 +80,25 @@ async def send_notifications(notifications: list[Notification], cover_slugs: dic
         await bot.session.close()
 
 
-async def send_staff_messages(messages: list[tuple[int, str]]) -> None:
-    """Plain service messages to employees (e.g. transfer or shift notice)."""
+async def send_staff_messages(messages: list[tuple[int, str] | tuple[int, str, str]]) -> None:
+    """Plain service messages to employees (e.g. transfer or shift notice); optional 3rd item is a button URL."""
     token = login_bot_token()
     if not messages or not token:
         return
+    base = get_settings().web_public_url.rstrip("/")
     bot = Bot(token)
     try:
-        for staff_id, text in messages:
+        for item in messages:
+            staff_id, text = item[0], item[1]
+            path = item[2] if len(item) > 2 else None
+            markup = None
+            if path and base:
+                url = path if path.startswith("http") else f"{base}{path}"
+                markup = InlineKeyboardMarkup(
+                    inline_keyboard=[[InlineKeyboardButton(text="Открыть диалог", url=url)]]
+                )
             try:
-                await bot.send_message(staff_id, text, parse_mode="HTML")
+                await bot.send_message(staff_id, text, parse_mode="HTML", reply_markup=markup)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Staff message to %s failed: %s", staff_id, exc)
     finally:

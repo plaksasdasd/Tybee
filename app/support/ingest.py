@@ -19,7 +19,7 @@ from app.db.models import (
 from app.support.common import NOTIFY_ROLES, now
 
 logger = logging.getLogger(__name__)
-SYSTEM_KINDS = {"delivery_failed", "close", "new_client"}
+SYSTEM_KINDS = {"delivery_failed", "close", "new_client", "payment_success", "payment_after_cancel"}
 
 
 @dataclass
@@ -137,8 +137,6 @@ async def _process_event(session: AsyncSession, event: SupportInbox) -> Notifica
             thread.assigned_at = None
     await session.flush()
 
-    if event.kind == "close":
-        return None
     if event.kind == "new_client":
         recipients = await _all_active_support_ids(session)
         return Notification(
@@ -150,6 +148,8 @@ async def _process_event(session: AsyncSession, event: SupportInbox) -> Notifica
             kind="new_client",
             assigned=False,
         )
+    if is_system:
+        return None
 
     assigned = thread.assigned_to is not None
     if assigned:
