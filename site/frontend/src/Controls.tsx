@@ -17,7 +17,7 @@ function collect(children: ReactNode, group?: string): Item[] {
   });
 }
 const EMPTY = "__tybee_empty_option__";
-export function CustomSelect({ children, value, onChange, disabled, style, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function CustomSelect({ children, value, onChange, disabled, style, className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   const items = collect(children);
   const groups: { label?: string; items: Item[] }[] = [];
   for (const item of items) {
@@ -25,7 +25,7 @@ export function CustomSelect({ children, value, onChange, disabled, style, ...pr
     groups[groups.length - 1].items.push(item);
   }
   return <Select value={String(value ?? "") || EMPTY} disabled={disabled} onValueChange={(v) => onChange?.({ target: { value: v === EMPTY ? "" : v }, currentTarget: { value: v === EMPTY ? "" : v } } as ChangeEvent<HTMLSelectElement>)}>
-    <SelectTrigger className="app-select-trigger" style={style} aria-label={props["aria-label"]}><SelectValue placeholder="Выберите" /></SelectTrigger>
+    <SelectTrigger className={className ? `app-select-trigger ${className}` : "app-select-trigger"} style={style} aria-label={props["aria-label"]}><SelectValue placeholder="Выберите" /></SelectTrigger>
     <SelectContent position="popper" className="app-select-content">{groups.map((group, i) => <SelectGroup key={i}>
       {group.label && <SelectLabel>{group.label}</SelectLabel>}
       {group.items.map((item, j) => <SelectItem key={`${item.value}-${j}`} value={item.value || EMPTY} disabled={item.disabled} className="app-select-item">{item.label}</SelectItem>)}

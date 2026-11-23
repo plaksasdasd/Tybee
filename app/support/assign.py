@@ -13,7 +13,12 @@ async def claim(session: AsyncSession, thread_id: int, staff: Staff) -> bool:
     result = await session.execute(
         update(SupportThread)
         .where(SupportThread.id == thread_id, SupportThread.assigned_to.is_(None))
-        .values(assigned_to=staff.telegram_id, assigned_at=now())
+        .values(
+            assigned_to=staff.telegram_id,
+            assigned_at=now(),
+            transfer_requested_by=None,
+            transfer_requested_at=None,
+        )
     )
     if result.rowcount != 1:
         return False
@@ -32,6 +37,8 @@ async def transfer(session: AsyncSession, thread: SupportThread, target: Staff, 
         raise SupportError("Сотрудник отключён", 422)
     thread.assigned_to = target.telegram_id
     thread.assigned_at = now()
+    thread.transfer_requested_by = None
+    thread.transfer_requested_at = None
     target.last_assigned_at = now()
     session.add(
         SupportThreadMessage(
@@ -46,6 +53,6 @@ async def release_threads(session: AsyncSession, staff_id: int) -> int:
     result = await session.execute(
         update(SupportThread)
         .where(SupportThread.assigned_to == staff_id)
-        .values(assigned_to=None, assigned_at=None)
+        .values(assigned_to=None, assigned_at=None, transfer_requested_by=None, transfer_requested_at=None)
     )
     return result.rowcount or 0

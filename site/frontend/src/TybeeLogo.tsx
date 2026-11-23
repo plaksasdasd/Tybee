@@ -287,7 +287,7 @@ export function TybeeEmptyState({
 }
 
 export function TybeeBrand({
-  tag = "панель",
+  tag = "",
   className = "",
 }: {
   tag?: string;

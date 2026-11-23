@@ -207,10 +207,6 @@ export default function Cabinet({ me }: { me: Me }) {
       <h1>Кабинет</h1>
       <Card className="card profile-card" style={{ maxWidth: 640 }}>
         <div className="profile-header">
-          <div className="profile-avatar-wrap">
-            <span className="profile-avatar">{p.display_name.slice(0, 2).toUpperCase()}</span>
-            <img src="/cat.png" alt="Кот Тайби" className="profile-cat-badge" />
-          </div>
           <div className="profile-info">
             <div className="profile-name-row">
               <span className="profile-display-name">{p.display_name}</span>

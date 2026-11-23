@@ -51,9 +51,6 @@ const MENU: { to: string; label: string; icon: string; perm?: string }[] = [
   { to: "/audit", icon: "audit", label: "Аудит", perm: "audit.view" },
 ];
 
-const initials = (name: string) =>
-  name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "?";
-
 const homeFor = (me: Me) => (me.permissions.includes("covers.manage") ? "/covers" : "/me");
 
 // Wide tables on phones get a "scroll" hint, but only when they really overflow.
@@ -144,7 +141,6 @@ function Layout({ me }: { me: Me }) {
           <a href="https://tybee.ru" target="_blank" rel="noreferrer" className="brand-logo-link" title="Перейти на сайт tybee.ru">
             <img src="/logo-light.png" alt="tybee" className="brand-logo-img brand-logo-light" /><img src="/logo-dark.png" alt="tybee" className="brand-logo-img brand-logo-dark" />
           </a>
-          <span className="brand-tag">панель</span>
           <ThemeToggle className="brand-theme" />
         </div>
         <nav id="main-navigation" aria-label="Основная навигация">
@@ -173,7 +169,6 @@ function Layout({ me }: { me: Me }) {
         </nav>
         {has("support.chat") && <ShiftControl />}
         <div className="me">
-          <span className="avatar">{initials(me.display_name)}</span>
           <div className="me-text">
             <div>{me.display_name}</div>
             <small>{me.username ? `@${me.username} · ` : ""}{me.role_label}</small>

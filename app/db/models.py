@@ -426,6 +426,9 @@ class SupportThread(Base):
     handoff_note: Mapped[str | None] = mapped_column(Text)
     next_step: Mapped[str | None] = mapped_column(Text)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tag: Mapped[str | None] = mapped_column(String(24))
+    transfer_requested_by: Mapped[int | None] = mapped_column(BigInteger)
+    transfer_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), default=func.now())
 
