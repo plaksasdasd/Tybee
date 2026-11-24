@@ -304,7 +304,7 @@ function StartDialogModal({ me, onClose, onOpen }: { me: Me; onClose: () => void
                 <Button type="button" className="link" onClick={() => { setPicked(null); setErr(""); }}>Другой клиент</Button>
               </div>
               {ownedByOther ? (
-                <p className="error">Диалог уже ведёт {picked.thread?.assigned_name ?? "другой сотрудник"}. Перехватывать чужую работу нельзя.</p>
+                <p className="muted">Диалог ведёт {picked.thread?.assigned_name ?? "другой сотрудник"}. Откройте его — писать можно, ответственным останется он.</p>
               ) : (
                 <>
                   {picked.is_banned && <p className="error">Клиент заблокирован: сначала разблокируйте его в диалоге.</p>}
@@ -975,13 +975,13 @@ function Chat({ me, id }: { me: Me; id: number }) {
             {d.needs_reply && <Button className="ghost" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/no-reply` })}>Ответ не требуется</Button>}
             <Button className="ghost" onClick={() => setSearchOpen(!searchOpen)}>Поиск в чате</Button>
             <Button className="ghost" data-guide="client-button" onClick={() => setClientOpen(true)}>Клиент и заказы ({d.orders?.length ?? 0})</Button>
-            {canInvoice && (isResponsible || d.can_refund) && <Button data-guide="invoice" onClick={() => setModal("invoice")}>Счёт</Button>}
-            {isResponsible && <Button className={d.client.is_banned ? "ghost" : "bad"} onClick={() => act.mutate({ path: `threads/${id}/ban`, body: { banned: !d.client.is_banned } })}>
+            {canInvoice && <Button data-guide="invoice" onClick={() => setModal("invoice")}>Счёт</Button>}
+            <Button className={d.client.is_banned ? "ghost" : "bad"} onClick={() => act.mutate({ path: `threads/${id}/ban`, body: { banned: !d.client.is_banned } })}>
               {d.client.is_banned ? "Разбанить" : "Забанить"}
-            </Button>}
+            </Button>
             {d.assigned_to === null && <Button onClick={() => act.mutate({ path: `threads/${id}/claim` })}>Взять</Button>}
             {canAssign && <Button className="ghost" onClick={() => setModal("transfer")}>Передать</Button>}
-            {isResponsible && d.status === "open" && <Button className="ghost" onClick={() => confirm("Закрыть диалог? Клиент получит уведомление.") && act.mutate({ path: `threads/${id}/close` })}>Закрыть</Button>}
+            {d.status === "open" && <Button className="ghost" onClick={() => confirm("Закрыть диалог? Клиент получит уведомление.") && act.mutate({ path: `threads/${id}/close` })}>Закрыть</Button>}
           </div>
         </div>
         {isForeign && (
@@ -1015,7 +1015,7 @@ function Chat({ me, id }: { me: Me; id: number }) {
           {jumping && <small role="status">Загружаем историю до выбранного сообщения…</small>}
         </div>}
         {(d.handoff_note || d.next_step) && <div className={`sup-handoff${headerExpanded ? " is-expanded" : ""}`}><b>Контекст передачи / следующий шаг</b>{d.handoff_note && <p>{d.handoff_note}</p>}{d.next_step && <p>{d.next_step}{d.due_at && ` · до ${fmtDate(d.due_at)}`}</p>}
-          {isResponsible && d.next_step && <Button className="ghost" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/notes`, body: { text: `Шаг выполнен: ${d.next_step}`, next_step: "" } })}>Шаг выполнен</Button>}
+          {d.next_step && <Button className="ghost" disabled={act.isPending} onClick={() => act.mutate({ path: `threads/${id}/notes`, body: { text: `Шаг выполнен: ${d.next_step}`, next_step: "" } })}>Шаг выполнен</Button>}
         </div>}
         <div className="sup-messages-area">
         <div className="sup-msgs" ref={messagesBox}
@@ -1127,7 +1127,7 @@ function Chat({ me, id }: { me: Me; id: number }) {
         <p className="muted">ID {d.client.id}{d.client.source ? ` · ${d.client.source}` : ""}<br />Обложки: {d.covers?.join(", ") || "—"}{d.channel_label && <><br />Канал: {d.channel_label}</>}</p>
         {d.client.is_banned && <p className="error">Клиент забанен</p>}
         <h2>Заказы</h2>
-        {canInvoice && (isResponsible || d.can_refund) && <Button onClick={() => { setClientOpen(false); setModal("invoice"); }}>Выставить счёт</Button>}
+        {canInvoice && <Button onClick={() => { setClientOpen(false); setModal("invoice"); }}>Выставить счёт</Button>}
         <Input type="search" aria-label="Поиск по заказам" placeholder="Номер заказа, название или статус" value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} />
         <small className="muted">Сначала новые · {orders.length} из {d.orders?.length ?? 0}</small>
         {!d.orders?.length && <p className="muted">Заказов нет</p>}
@@ -1138,19 +1138,17 @@ function Chat({ me, id }: { me: Me; id: number }) {
             <small className="muted">Создан {fmtDate(o.created_at)}</small>
             <div className="muted">{d.labels?.[o.status] ?? o.status}</div>
             {o.operations && <div className="muted">Оплата: {o.operations.paid_at ? `${o.operations.paid_amount ?? 0} ₽ · ${fmtDate(o.operations.paid_at)}` : "не подтверждена"}<br />Возврат: {o.operations.refunded_at ? `${o.operations.refund_amount ?? 0} ₽ · ${fmtDate(o.operations.refunded_at)}` : "не зарегистрирован"}</div>}
-            {(isResponsible || d.can_refund || me.permissions.includes("buyout.manage")) && (
-              <CustomSelect disabled={act.isPending || !o.allowed_transitions?.length} value="" onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return;
-                if (v === "refunded") { setRefundOrder(o); return; }
-                setStatusChange({ order: o, target: v });
-              }}>
-                <option value="">Сменить статус…</option>
-                {(o.allowed_transitions ?? []).map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
-              </CustomSelect>
-            )}
-            {isResponsible && !o.can_ping && o.next_ping_at && new Date(o.next_ping_at).getTime() > Date.now() && <small className="muted">Повторить напоминание после {fmtDate(o.next_ping_at)}</small>}
-            {isResponsible && o.can_ping && (
+            <CustomSelect disabled={act.isPending || !o.allowed_transitions?.length} value="" onChange={(e) => {
+              const v = e.target.value;
+              if (!v) return;
+              if (v === "refunded") { setRefundOrder(o); return; }
+              setStatusChange({ order: o, target: v });
+            }}>
+              <option value="">Сменить статус…</option>
+              {(o.allowed_transitions ?? []).map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+            </CustomSelect>
+            {!o.can_ping && o.next_ping_at && new Date(o.next_ping_at).getTime() > Date.now() && <small className="muted">Повторить напоминание после {fmtDate(o.next_ping_at)}</small>}
+            {o.can_ping && (
               <Button className="ghost" disabled={act.isPending} title={o.last_ping_at ? `Последнее напоминание: ${fmtDate(o.last_ping_at)}` : ""}
                 onClick={() => act.mutate({ path: `orders/${o.id}/ping` })}>🔔 Напомнить</Button>
             )}

@@ -46,22 +46,17 @@ from panel.permissions import Perm, perms_of
 router = APIRouter(prefix="/api", tags=["support"], dependencies=[Depends(csrf_guard)])
 
 
-def _responsible(thread: SupportThread, me: Staff) -> bool:
-    return thread.assigned_to == me.telegram_id or me.role == StaffRole.ADMIN.value
-
-
 def _iso(value: datetime | None) -> str | None:
     return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat() if value else None
 
 
-async def _get_thread(session: AsyncSession, thread_id: int, me: Staff, *, responsible: bool = False) -> SupportThread:
+async def _get_thread(session: AsyncSession, thread_id: int, me: Staff) -> SupportThread:
+    """Load a thread the caller may see. Ownership is informational: any support
+    member with ``support.view_all`` may read and answer every dialog."""
     thread = await session.scalar(select(SupportThread).where(SupportThread.id == thread_id))
     if thread is None:
         raise HTTPException(404, "Ветка не найдена")
-    if responsible:
-        if not _responsible(thread, me):
-            raise HTTPException(403, "Ветка закреплена за другим сотрудником" if thread.assigned_to else "Сначала возьмите ветку в работу")
-    elif not (
+    if not (
         thread.assigned_to in (None, me.telegram_id) or Perm.SUPPORT_VIEW_ALL in perms_of(me)
     ):
         raise HTTPException(403, "Это чужая ветка")
@@ -529,7 +524,7 @@ async def get_thread(thread_id: int, me: Staff = Depends(require_perm(Perm.SUPPO
             if code == o.status or (code == "refunded" and not o.paid_amount):
                 continue
             try:
-                actions.check_transition(o.status, code, responsible=_responsible(thread, me) or (code == "bought" and Perm.BUYOUT_MANAGE in perms_of(me)),
+                actions.check_transition(o.status, code, responsible=True,
                                          can_refund=Perm.REFUNDS_MANAGE in perms_of(me))
             except SupportError:
                 continue
@@ -540,7 +535,7 @@ async def get_thread(thread_id: int, me: Staff = Depends(require_perm(Perm.SUPPO
             "created_at": _iso(o.created_at), "last_ping_at": _iso(o.last_ping_at),
             "operations": ({"paid_amount": o.paid_amount, "paid_at": _iso(o.paid_at), "refund_amount": o.refund_amount, "refunded_at": _iso(o.refunded_at)} if Perm.ORDERS_OPERATIONS_VIEW in perms_of(me) else None),
             "next_ping_at": _iso(next_ping), "allowed_transitions": allowed,
-            "can_ping": _responsible(thread, me) and o.status not in NO_PING_STATUSES and (not next_ping or ts(next_ping) <= ts(now())),
+            "can_ping": o.status not in NO_PING_STATUSES and (not next_ping or ts(next_ping) <= ts(now())),
         })
     row["statuses"] = [{"code": c, "label": l} for c, l in ORDER_STATUSES if c in SETTABLE]
     row["labels"] = ORDER_STATUS_LABELS
@@ -1062,7 +1057,8 @@ async def transfer(thread_id: int, body: TransferBody, me: Staff = Depends(requi
 
 @router.post("/support/threads/{thread_id}/close")
 async def close(thread_id: int, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
-    thread = await _get_thread(session, thread_id, me, responsible=True)
+    # Any support member may close a dialog, not only the owner (shared-dialog model).
+    thread = await _get_thread(session, thread_id, me)
     await actions.close_thread(session, thread, me)
     await write_audit(session, me, "support.close", str(thread_id))
     await session.commit()
@@ -1198,8 +1194,8 @@ class InvoiceBody(BaseModel):
 
 @router.post("/support/threads/{thread_id}/invoice", status_code=201)
 async def invoice(thread_id: int, body: InvoiceBody, request: Request, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT, Perm.ORDERS_INVOICE)), session: AsyncSession = Depends(get_session)):
-    # Arbitration handles invoices and claims even when a client manager owns the thread.
-    thread = await _get_thread(session, thread_id, me, responsible=Perm.REFUNDS_MANAGE not in perms_of(me))
+    # Invoices may be issued from any visible thread; the permission gate is ``orders.invoice``.
+    thread = await _get_thread(session, thread_id, me)
     if not body.title.strip():
         raise HTTPException(422, "Укажите название счёта")
     claim, previous = await idempotency.claim(session, request, me.telegram_id, "support.invoice", {"thread_id": thread_id, **body.model_dump(mode="json")})
@@ -1223,13 +1219,13 @@ class StatusBody(BaseModel):
 
 @router.post("/support/orders/{order_id}/status")
 async def order_status(order_id: int, body: StatusBody, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
-    """Transitions per ТЗ-2 B.3: delivery/cancel-unpaid by the thread owner, refunds by ``refunds.manage``."""
+    """Transitions per ТЗ-2 B.3: delivery/cancel-unpaid by any support member, refunds by ``refunds.manage``."""
     order = await session.scalar(select(Order).where(Order.id == order_id).with_for_update())
     if order is None:
         raise HTTPException(404, "Заказ не найден")
     thread = await session.scalar(select(SupportThread).where(SupportThread.user_id == order.user_id))
     if thread is None:
-        raise HTTPException(403, "Вы не ведёте ветку этого клиента")
+        raise HTTPException(403, "У клиента нет ветки поддержки")
     previous = order.status
     if body.expected_status is not None and body.expected_status != previous:
         raise HTTPException(409, "Статус уже изменился. Обновите карточку заказа")
@@ -1244,7 +1240,7 @@ async def order_status(order_id: int, body: StatusBody, me: Staff = Depends(requ
     try:
         await actions.change_order_status(
             session, thread, me, order_id, body.status,
-            responsible=_responsible(thread, me) or (body.status == "bought" and Perm.BUYOUT_MANAGE in perms_of(me)),
+            responsible=True,
             can_refund=Perm.REFUNDS_MANAGE in perms_of(me),
         )
     except SupportError as exc:
@@ -1261,19 +1257,19 @@ async def order_status(order_id: int, body: StatusBody, me: Staff = Depends(requ
     return {"ok": True}
 
 
-async def _owned_order(session: AsyncSession, order_id: int, me: Staff) -> tuple[Order, SupportThread]:
+async def _order_thread(session: AsyncSession, order_id: int) -> tuple[Order, SupportThread]:
     order = await session.get(Order, order_id)
     if order is None:
         raise HTTPException(404, "Заказ не найден")
     thread = await session.scalar(select(SupportThread).where(SupportThread.user_id == order.user_id))
-    if thread is None or not _responsible(thread, me):
-        raise HTTPException(403, "Вы не ведёте ветку этого клиента")
+    if thread is None:
+        raise HTTPException(403, "У клиента нет ветки поддержки")
     return order, thread
 
 
 @router.post("/support/orders/{order_id}/ping")
 async def order_ping(order_id: int, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
-    order, thread = await _owned_order(session, order_id, me)
+    order, thread = await _order_thread(session, order_id)
     try:
         await actions.ping_order(session, thread, me, order)
     except SupportError as exc:
@@ -1309,7 +1305,7 @@ async def stale_orders(
             "updated_at": _iso(o.updated_at), "last_ping_at": _iso(o.last_ping_at),
             "thread_id": t.id if t is not None else None,
             "client": (u.full_name or str(u.id)),
-            "can_ping": bool(t is not None and _responsible(t, me)),
+            "can_ping": bool(t is not None),
         }
         for o, t, u in rows
     ]
@@ -1321,7 +1317,8 @@ class BanBody(BaseModel):
 
 @router.post("/support/threads/{thread_id}/ban")
 async def ban(thread_id: int, body: BanBody, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
-    thread = await _get_thread(session, thread_id, me, responsible=True)
+    # Banning a client is a client-level action, so the thread owner is not required.
+    thread = await _get_thread(session, thread_id, me)
     try:
         await actions.set_banned(session, thread, me, body.banned)
     except SupportError as exc:
@@ -1402,10 +1399,10 @@ class ReadBody(BaseModel):
 
 @router.post("/support/threads/{thread_id}/read")
 async def read_thread(thread_id: int, body: ReadBody, me: Staff = Depends(require_perm(Perm.SUPPORT_CHAT)), session: AsyncSession = Depends(get_session)):
-    thread = await _get_thread(session, thread_id, me, responsible=True)
+    thread = await _get_thread(session, thread_id, me)
     thread = await session.scalar(select(SupportThread).where(SupportThread.id == thread_id).with_for_update().execution_options(populate_existing=True))
-    if not _responsible(thread, me):
-        raise HTTPException(409, "Ответственный изменился")
+    if thread is None:
+        raise HTTPException(404, "Ветка не найдена")
     message = await session.get(SupportThreadMessage, body.through_id)
     if not message or message.thread_id != thread_id:
         raise HTTPException(422, "Сообщение не принадлежит диалогу")
